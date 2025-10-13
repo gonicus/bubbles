@@ -38,7 +38,21 @@ jobs:
               "release": "trixie",
               "description": "Debian",
               "architecture": "x86_64"
-            }' > debian.yaml
+            }' | yq -y '
+            .packages.sets += [{"action": "install", "packages": [
+              "starship",
+              "gnome-console",
+              "libgbm1",
+              "libpixman-1-0",
+              "libwayland-client0",
+              "libxcb-composite0",
+              "libxcb-shape0",
+              "libxkbcommon0",
+              "socat",
+              "libglib2.0-bin",
+              "nix-bin"
+            ]}]
+            ' > debian.yaml
       - run: |
           nix-shell -p distrobuilder --command 'ln -s $(which distrobuilder) distrobuilder'
           nix-shell -p oras --command 'ln -s $(which oras) oras'
