@@ -41,6 +41,7 @@ jobs:
             }' > debian.yaml
       - run: |
           nix-shell -p distrobuilder --command 'ln -s $(which distrobuilder) distrobuilder'
+          nix-shell -p oras --command 'ln -s $(which oras) oras'
           sudo ./distrobuilder build-incus ./debian.yaml debian-output --vm
           ls -lR debian-output
           cd debian-output
@@ -52,7 +53,9 @@ jobs:
             virt-get-kernel -a disk.qcow2
             mv vmlinuz* vmlinuz
             mv initrd.img* initrd.img
-            set +x
-            echo -n "${{ secrets.GITHUB_TOKEN }}" | oras login -u ${{ github.actor }} --password-stdin ghcr.io
-            oras push ghcr.io/${{ github.repository }}/vm-image:${{ github.sha }}
           '
+      - env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo -n "$GITHUB_TOKEN" | ./oras login -u ${{ github.actor }} --password-stdin ghcr.io
+          ./oras push ghcr.io/${{ github.repository }}/vm-image:${{ github.sha }} vmlinuz:application/vnd.bubbles.img.v1 initrd.img:application/vnd.bubbles.img.v1 disk.qcow2:application/vnd.bubbles.img.v1
