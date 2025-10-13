@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5.0.0
+        with:
+          repository: lxc/lxc-ci
+          ref: bc78ee5e27ade74f31162f66f370d89ec2567667
+          sparse-checkout: |
+            images/debian.yaml
+          sparse-checkout-cone-mode: false
+          path: lxc-ci
+      - uses: cachix/install-nix-action@v31
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+      - run: |
+          set -ex
+          sudo apt-get update
+          sudo apt-get install -y e2fsprogs qemu-utils debootstrap yq
+      - run: |
+          cat lxc-ci/images/debian.yaml | yq -y '
+            .image = {
+              "distribution": "debian",
+              "name": "debian-trixie-x86_64",
+              "release": "trixie",
+              "description": "Debian",
+              "architecture": "x86_64"
+            }' > debian.yaml
+      - run: |
+          nix-shell -p distrobuilder --command 'ln -s $(which distrobuilder) distrobuilder'
+          sudo ./distrobuilder build-incus ./debian.yaml debian-output --vm
+          ls -lR debian-output
+          cd debian-output
+          docker run -v $PWD:/disk debian:trixie sh -c '
+            set -e
+            apt-get update
+            apt-get install -y guestfs-tools oras
+            cd /disk
+            virt-get-kernel -a disk.qcow2
+            mv vmlinuz* vmlinuz
+            mv initrd.img* initrd.img
+            set +x
+            echo -n "${{ secrets.GITHUB_TOKEN }}" | oras login -u ${{ github.actor }} --password-stdin ghcr.io
+            oras push ghcr.io/${{ github.repository }}/vm-image:${{ github.sha }}
+          '
