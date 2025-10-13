@@ -58,4 +58,5 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo -n "$GITHUB_TOKEN" | ./oras login -u ${{ github.actor }} --password-stdin ghcr.io
+          cd debian-output
           ./oras push ghcr.io/${{ github.repository }}/vm-image:${{ github.sha }} vmlinuz:application/vnd.bubbles.img.v1 initrd.img:application/vnd.bubbles.img.v1 disk.qcow2:application/vnd.bubbles.img.v1
