@@ -97,8 +97,14 @@ jobs:
             ' | yq -y '
             .files += [
               {
+                "generator": "copy",
                 "path": "/usr/local/bin/",
                 "source": "./usrlocalbin"
+              },
+              {
+                "generator": "dump",
+                "path": "/etc/nix/nix.conf",
+                "content": "sandbox = true\nexperimental-features = nix-command flakes"
               }
             ]
             ' > debian.yaml
