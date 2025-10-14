@@ -8,7 +8,49 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-agent:
+    steps:
+      - uses: actions/checkout@v5.0.0
+      - run: |
+          cd bubbles-agent
+          cargo build --release
+      - name: 'Upload Artifact'
+        uses: actions/upload-artifact@v4
+        with:
+          name: bubbles-agent
+          path: bubbles-agent/target/release/bubbles-agent
+          retention-days: 1
+  build-sommelier:
+    steps:
+      - uses: actions/checkout@v5.0.0
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y meson libgbm-dev libpixman-1-dev \
+            libwayland-client++1 libwayland-client-extra++1 \
+            wayland-utils libxcb-composite0-dev libxcb-shape0-dev \
+            libxkbcommon-dev wayland-scanner++ wayland-protocols \
+            libwayland-bin python3-jinja2 libgbm1 libpixman-1-0 \
+            libwayland-client0 libxcb-composite0 libxcb-shape0 \
+            libxkbcommon0 cmake build-essential pkgconf libdrm-dev \
+            waylandpp-dev libwayland-dev
+      - name: Build
+        run: |
+          git clone --depth=1 https://chromium.googlesource.com/chromiumos/platform2
+          cd platform2/vm_tools/sommelier/
+          meson setup build -Dwith_tests=false
+          meson compile -C build
+          sudo meson install -C build
+      - name: 'Upload Artifact'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sommelier
+          path: /usr/local/bin/sommelier
+          retention-days: 1
+  build-vm:
+    needs:
+    - build-agent
+    - build-sommelier
     runs-on: ubuntu-latest
 
     permissions:
