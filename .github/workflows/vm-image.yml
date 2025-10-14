@@ -94,10 +94,23 @@ jobs:
               "libglib2.0-bin",
               "nix-bin"
             ]}]
+            ' | yq -y '
+            .files += [
+              {
+                "path": "/usr/local/bin/",
+                "source": "./usrlocalbin"
+              },
+            ]
             ' > debian.yaml
+      - name: Download bubbles-agent and sommelier
+        uses: actions/download-artifact@v5
+        with:
+          path: usrlocalbin
+          merge-multiple: true
       - run: |
           nix-shell -p distrobuilder --command 'ln -s $(which distrobuilder) distrobuilder'
           nix-shell -p oras --command 'ln -s $(which oras) oras'
+          ls -lR usrlocalbin
           sudo ./distrobuilder build-incus ./debian.yaml debian-output --vm
           ls -lR debian-output
           cd debian-output
