@@ -102,12 +102,72 @@ jobs:
                 "source": "./usrlocalbin"
               },
               {
+                "generator": "copy",
+                "path": "/etc/systemd/system/",
+                "source": "./etcsystemdsystem"
+              },
+              {
+                "generator": "copy",
+                "path": "/opt/post-files.bash",
+                "source": "./post-files.bash"
+              },
+              {
                 "generator": "dump",
                 "path": "/etc/nix/nix.conf",
                 "content": "sandbox = true\nexperimental-features = nix-command flakes"
               }
             ]
+            ' | yq -y '
+            .actions += [
+              {
+                "trigger": "post-files",
+                "action": "#!/bin/bash\nbash /opt/post-files.bash"
+              }
+            ]
             ' > debian.yaml
+          cat > post-files.bash <<EOF
+          #!/bin/bash
+          set -eux
+
+          #mkdir -p /var/lib/systemd/linger
+          #touch /var/lib/systemd/linger/user
+          EOF
+
+          mkdir etcsystemdsystem
+          cat > etcsystemdsystem/bubbles.service <<EOF
+          [Unit]
+          Description=BubblesIntegration
+
+          [Service]
+          ExecStart=/usr/local/bin/bubbles-agent
+          User=user
+
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+
+          cat > etcsystemdsystem/bubbles-proxy.service <<EOF
+          [Unit]
+          Description=BubblesIntegrationProxy
+
+          [Service]
+          ExecStart=/usr/bin/socat VSOCK-LISTEN:11111,fork TCP4-CONNECT:127.0.0.1:3000
+
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+
+          cat > etcsystemdsystem/sommelier.service <<EOF
+          [Unit]
+          Description=Sommelier
+
+          [Service]
+          ExecStart=/usr/local/bin/sommelier --parent --virtgpu-channel
+
+          [Install]
+          WantedBy=default.target
+          EOF
+
       - name: Download bubbles-agent and sommelier
         uses: actions/download-artifact@v5
         with:
