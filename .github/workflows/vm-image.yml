@@ -99,7 +99,7 @@ jobs:
               {
                 "path": "/usr/local/bin/",
                 "source": "./usrlocalbin"
-              },
+              }
             ]
             ' > debian.yaml
       - name: Download bubbles-agent and sommelier
