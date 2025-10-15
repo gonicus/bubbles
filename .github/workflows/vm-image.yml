@@ -110,6 +110,11 @@ jobs:
               },
               {
                 "generator": "copy",
+                "path": "/etc/systemd/user/",
+                "source": "./etcsystemduser"
+              },
+              {
+                "generator": "copy",
                 "path": "/opt/post-files.bash",
                 "source": "./post-files.bash"
               },
@@ -130,12 +135,18 @@ jobs:
           cat > post-files.bash <<EOF
           #!/bin/bash
           set -eux
+          nix-channel --add https://nixos.org/channels/nixos-25.05 nixpkgs
+          groupadd nix-users
+          useradd -m -G sudo,render,video,nix-users -s /bin/bash -p "" user
 
-          #mkdir -p /var/lib/systemd/linger
-          #touch /var/lib/systemd/linger/user
+          systemctl enable bubbles.service
+          systemctl enable bubbles-proxy.service
+
+          mkdir -p /var/lib/systemd/linger
+          touch /var/lib/systemd/linger/user
           EOF
 
-          mkdir etcsystemdsystem
+          mkdir etcsystemdsystem etcsystemduser
           cat > etcsystemdsystem/bubbles.service <<EOF
           [Unit]
           Description=BubblesIntegration
@@ -159,7 +170,7 @@ jobs:
           WantedBy=multi-user.target
           EOF
 
-          cat > etcsystemdsystem/sommelier.service <<EOF
+          cat > etcsystemduser/sommelier.service <<EOF
           [Unit]
           Description=Sommelier
 
