@@ -136,7 +136,6 @@ jobs:
           #!/bin/bash
           set -eux
           nix-channel --add https://nixos.org/channels/nixos-25.05 nixpkgs
-          groupadd nix-users
           useradd -m -G sudo,render,video,nix-users -s /bin/bash -p "" user
 
           systemctl enable bubbles.service
