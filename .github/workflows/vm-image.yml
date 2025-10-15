@@ -150,6 +150,7 @@ jobs:
           cat > post-files.bash <<EOF
           #!/bin/bash
           set -eux
+          chmod +x /usr/local/bin/*
           nix-channel --add https://nixos.org/channels/nixos-25.05 nixpkgs
           mkdir -p /etc/skel/.config
           starship preset nerd-font-symbols -o /etc/skel/.config/starship.toml
