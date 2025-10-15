@@ -120,6 +120,16 @@ jobs:
               },
               {
                 "generator": "copy",
+                "path": "/etc/dconf/profile/user",
+                "source": "./etcdconfprofileuser"
+              },
+              {
+                "generator": "copy",
+                "path": "/etc/dconf/db/local.d/01-bubbles",
+                "source": "./etcdconfdblocald01bubbles"
+              },
+              {
+                "generator": "copy",
                 "path": "/opt/post-files.bash",
                 "source": "./post-files.bash"
               },
@@ -187,6 +197,20 @@ jobs:
 
           [Install]
           WantedBy=default.target
+          EOF
+
+          cat > etcdconfprofileuser <<EOF
+          user-db:user
+          system-db:local
+          EOF
+
+          cat > etcdconfdblocald01bubbles <<EOF
+          [org/gnome/Console]
+          use-system-font=true
+          shell="['/usr/bin/bash', '-l']"
+
+          [org/gnome/desktop/interface]
+          monospace-font-name='FiraCode Nerd Font Mono'
           EOF
 
           cat bashrc <<EOF
