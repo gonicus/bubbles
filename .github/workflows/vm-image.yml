@@ -144,6 +144,8 @@ jobs:
           mkdir -p /etc/skel/.config
           starship preset nerd-font-symbols -o /etc/skel/.config/starship.toml
           useradd -m -G sudo,render,video,nix-users -s /bin/bash -p "" user
+          mkdir -p /home/user/.config/systemd/user/default.target.wants
+          ln -s /etc/systemd/user/sommelier.service /home/user/.config/systemd/user/default.target.wants/sommelier.service
 
           systemctl enable bubbles.service
           systemctl enable bubbles-proxy.service
