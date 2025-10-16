@@ -86,6 +86,7 @@ jobs:
             .packages.sets += [{"action": "install", "packages": [
               "starship",
               "git",
+              "unzip",
               "gnome-console",
               "libgbm1",
               "libpixman-1-0",
@@ -166,6 +167,7 @@ jobs:
 
           systemctl enable bubbles.service
           systemctl enable bubbles-proxy.service
+          systemctl enable firstboot.service
 
           mkdir -p /var/lib/systemd/linger
           touch /var/lib/systemd/linger/user
@@ -182,6 +184,19 @@ jobs:
 
           [Install]
           WantedBy=multi-user.target
+          EOF
+
+          cat > etcsystemdsystem/firstboot.service <<EOF
+          [Unit]
+          Description=FirstBoot
+
+          [Service]
+          Type=oneshot
+          ExecStartPre=-/usr/bin/nix-channel --update
+          ExecStart=/bin/bash -c 'cd /usr/local/share/fonts && curl -sSL -O https://github.com/ryanoasis/nerd-fonts/releases/download/v3.3.0/FiraCode.zip && unzip FiraCode.zip && rm FiraCode.zip'
+
+          [Install]
+          WantedBy=default.target
           EOF
 
           cat > etcsystemdsystem/bubbles-proxy.service <<EOF
