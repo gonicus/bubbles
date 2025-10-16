@@ -158,7 +158,6 @@ jobs:
           set -eux
           chmod +x /usr/local/bin/*
           nix-channel --add https://nixos.org/channels/nixos-25.05 nixpkgs
-          nix-channel --update
           mkdir -p /etc/skel/.config
           starship preset nerd-font-symbols -o /etc/skel/.config/starship.toml
           useradd -m -G sudo,render,video,nix-users -s /bin/bash -p "" user
