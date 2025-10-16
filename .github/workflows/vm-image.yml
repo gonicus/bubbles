@@ -115,6 +115,11 @@ jobs:
               },
               {
                 "generator": "copy",
+                "path": "/etc/systemd/network/",
+                "source": "./etcsystemdnetwork"
+              },
+              {
+                "generator": "copy",
                 "path": "/etc/systemd/user/",
                 "source": "./etcsystemduser"
               },
@@ -165,7 +170,7 @@ jobs:
           touch /var/lib/systemd/linger/user
           EOF
 
-          mkdir etcsystemdsystem etcsystemduser
+          mkdir etcsystemdsystem etcsystemduser etcsystemdnetwork
           cat > etcsystemdsystem/bubbles.service <<EOF
           [Unit]
           Description=BubblesIntegration
@@ -198,6 +203,21 @@ jobs:
 
           [Install]
           WantedBy=default.target
+          EOF
+          
+          cat > etcsystemdnetwork/enp0s7.network <<EOF
+          [Match]
+          Name=enp0s7
+
+          [Network]
+          DHCP=true
+
+          [DHCPv4]
+          UseDomains=true
+          UseMTU=true
+
+          [DHCP]
+          ClientIdentifier=mac
           EOF
 
           cat > etcdconfprofileuser <<EOF
