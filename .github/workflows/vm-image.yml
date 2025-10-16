@@ -237,9 +237,6 @@ jobs:
             apt-get install -y guestfs-tools oras
             cd /disk
             virt-get-kernel -a disk.qcow2
-            qemu-img create -f qcow2 -o preallocation=metadata disk.trimmed.qcow2 $(du -b disk.qcow2 | awk "{print \$1}")
-            virt-resize --delete /dev/sda1 disk.qcow2 disk.trimmed.qcow2
-            mv disk.trimmed.qcow2 disk.qcow2
             mv vmlinuz* vmlinuz
             mv initrd.img* initrd.img
           '
