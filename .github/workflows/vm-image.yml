@@ -152,7 +152,7 @@ jobs:
                 "action": "#!/bin/bash\nbash /opt/post-files.bash"
               }
             ]
-            ' > debian.yaml
+            ' | sed 's/\/dev\/sda/\/dev\/vda/g' > debian.yaml
           cat > post-files.bash <<EOF
           #!/bin/bash
           set -eux
