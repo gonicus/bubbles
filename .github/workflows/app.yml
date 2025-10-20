@@ -19,7 +19,6 @@ jobs:
           sudo apt-get install -y libgtk-4-dev libadwaita-1-dev
       - name: Build
         run: |
-          cd bubbles
           cargo build --release
       - name: 'Upload Artifact'
         uses: actions/upload-artifact@v4
