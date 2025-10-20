@@ -8,12 +8,24 @@ on:
   workflow_dispatch:
 
 jobs:
+  build-ui:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5.0.0
+      - run: |
+          apt-get update
+          apt-get install -y libgtk-4-dev libadwaita-1-dev
+      - run: |
+          cargo build --release
+      - name: 'Upload Artifact'
+        uses: actions/upload-artifact@v4
+        with:
+          name: bubbles
+          path: target/release/bubbles
+          retention-days: 1
   build-crosvm:
     runs-on: ubuntu-latest
-
-    permissions:
-      contents: read
-      packages: write
     steps:
       - name: Checkout crosvm
         uses: actions/checkout@v5.0.0
@@ -109,3 +121,53 @@ jobs:
           git submodule update --init && tools/deps/install-x86_64-debs
           cargo build --release
           cd -
+      - name: 'Upload Artifact'
+        uses: actions/upload-artifact@v4
+        with:
+          name: crosvm
+          path: target/release/crosvm
+          retention-days: 1
+  build-dist:
+    needs:
+    - build-crosvm
+    - build-ui
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Download bubbles and crosvm
+        uses: actions/download-artifact@v5
+        with:
+          path: binaries
+          merge-multiple: true
+      - run: |
+          cat > Dockerfile <<EOF
+          FROM debian:trixie
+          RUN apt-get update && apt-get install -y libgtk-4-dev libadwaita-1-dev socat oras
+          RUN mkdir -p /runtime_libs && cd /usr/lib/x86_64-linux-gnu && cp libadwaita-1.so libgtk-4.so libwrap.so.0 /runtime_libs
+
+          FROM busybox
+          WORKDIR /opt/artifacts
+          COPY --from=0 /runtime_libs runtime_libs
+          WORKDIR /opt/artifacts/bin
+          COPY binaries/crosvm .
+          COPY binaries/bubbles .
+          COPY --from=0 /usr/bin/socat1 ./socat
+          COPY --from=0 /usr/bin/oras .
+          COPY scripts /opt/artifacts/scripts
+          VOLUME ["/output"]
+          ENTRYPOINT ["/bin/sh", "-c"]
+          CMD ["cp /opt/artifacts/bin/* /output && cp -r /opt/artifacts/runtime_libs /output && cp -r /opt/artifacts/scripts /output"]
+          EOF
+      - name: Log into registry
+        uses: docker/login-action@343f7c4344506bcbf9b4de18042ae17996df046d # v3.0.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        run: |
+          docker build -t "ghcr.io/${{ github.repository }}/bubbles:${{ github.sha }}" .
+          docker push "ghcr.io/${{ github.repository }}/bubbles:${{ github.sha }}"
