@@ -10,6 +10,7 @@ on:
 jobs:
   build-ui:
     runs-on: ubuntu-latest
+    container: debian:trixie
     steps:
       - name: Checkout
         uses: actions/checkout@v5.0.0
