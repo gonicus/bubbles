@@ -35,10 +35,8 @@ jobs:
         with:
           repository: google/crosvm
           ref: b2cf2fba8bf240bc09cc396fdd677d853b158a62
-          path: crosvm
       - name: Apply passt patch (only fits into old crosvm revision)
         run: |
-          cd crosvm
           git apply - <<EOF
           diff --git a/devices/src/virtio/vhost_user_frontend/mod.rs b/devices/src/virtio/vhost_user_frontend/mod.rs
           index 1f847409e..8d6b5e646 100644
@@ -65,10 +63,8 @@ jobs:
                        let avail_protocol_features = backend_client
                            .get_protocol_features()
           EOF
-          cd -
       - name: 'Apply display patch (derived from https://gitlab.com/talex5/crosvm/-/commit/2e71ed5243ff1e484b6cb14c515805ed69b8ece2)'
         run: |
-          cd crosvm
           git apply - <<EOF
           diff --git a/src/crosvm/sys/linux/gpu.rs b/src/crosvm/sys/linux/gpu.rs
           index 7bb3ff7af..7eba55ee7 100644
@@ -98,10 +94,8 @@ jobs:
                    exit_evt_wrtube
                        .try_clone()
           EOF
-          cd -
       - name: 'Apply CopyPaste patch (from https://gitlab.com/talex5/crosvm/-/commit/cc29efcc00afe3c3097c567d7003d5b072f92e60)'
         run: |
-          cd crosvm
           git apply - <<EOF
           diff --git a/rutabaga_gfx/src/cross_domain/mod.rs b/rutabaga_gfx/src/cross_domain/mod.rs
           index a35bf6425f0b4581426ad7d9eeda7341873e2811..56c6b72826eb059d9cd9ee225ded0deb9fd8abd3 100644
@@ -117,13 +111,10 @@ jobs:
                                                    &self.item_state,
                                                    CrossDomainItem::WaylandWritePipe(WritePipe::new(
           EOF
-          cd -
       - name: Build crosvm
         run: |
-          cd crosvm
           git submodule update --init && tools/deps/install-x86_64-debs
           cargo build --release
-          cd -
       - name: 'Upload Artifact'
         uses: actions/upload-artifact@v4
         with:
