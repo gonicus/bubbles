@@ -189,6 +189,8 @@ jobs:
           cat > etcsystemdsystem/firstboot.service <<EOF
           [Unit]
           Description=FirstBoot
+          ConditionFirstBoot=yes
+          After=systemd-firstboot.service
 
           [Service]
           Type=oneshot
