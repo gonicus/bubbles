@@ -140,6 +140,8 @@ jobs:
       contents: read
       packages: write
     steps:
+      - name: Checkout
+        uses: actions/checkout@v5.0.0
       - name: Download bubbles and crosvm
         uses: actions/download-artifact@v5
         with:
