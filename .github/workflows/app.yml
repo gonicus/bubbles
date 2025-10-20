@@ -3,8 +3,8 @@ name: AppBuild
 on:
   push:
     branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+    paths-ignore:
+    - '.github/workflows/vm-image.yml'
   workflow_dispatch:
 
 jobs:
