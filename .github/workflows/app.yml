@@ -20,12 +20,13 @@ jobs:
           apt-get install -y libgtk-4-dev libadwaita-1-dev cargo build-essential
       - name: Build
         run: |
+          cd bubbles-app/
           cargo build --release
       - name: 'Upload Artifact'
         uses: actions/upload-artifact@v4
         with:
           name: bubbles
-          path: target/release/bubbles
+          path: bubbles-app/target/release/bubbles
           retention-days: 1
   build-crosvm:
     runs-on: ubuntu-latest
