@@ -257,7 +257,7 @@ pub fn build_vms_list(vms: Vec<VM>) -> gtk::Widget {
                         power_button_sender.send(VMStatus::InFlux).await.expect("channel to be open");
                         let socket_path = env::current_dir()
                             .expect("to be set")
-                            .join(".bubbles/vms/development/crosvm_socket");
+                            .join(".bubbles/vms").join(vm_name_power.clone()).join("crosvm_socket");
                         Subprocess::newv(
                             &[
                                 OsStr::new(Path::new(&env::var("HOME").expect("HOME var to be set")).join("bubbles/crosvm").as_os_str()),
