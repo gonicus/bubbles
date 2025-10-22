@@ -219,7 +219,7 @@ pub fn build_vms_list(vms: Vec<VM>) -> gtk::Widget {
                             SubprocessFlags::empty()
                         ).expect("start of passt process");
                         wait_until_exists(passt_socket_path.as_os_str()).await;
-                        Subprocess::newv(
+                        let crosvm_process = Subprocess::newv(
                             &[
                                 OsStr::new(Path::new(&env::var("HOME").expect("HOME var to be set")).join("bubbles/crosvm").as_os_str()),
                                 OsStr::new("run"),
