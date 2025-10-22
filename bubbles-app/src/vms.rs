@@ -251,6 +251,8 @@ pub fn build_vms_list(vms: Vec<VM>) -> gtk::Widget {
                         ).expect("start of process");
                         wait_until_ready(vsock_socket_path.as_os_str()).await;
                         power_button_sender.send(VMStatus::Running).await.expect("channel to be open");
+                        crosvm_process.wait_future().await.expect("vm to stop");
+                        power_button_sender.send(VMStatus::NotRunning).await.expect("channel to be open");
                     } else {
                         power_button_sender.send(VMStatus::InFlux).await.expect("channel to be open");
                         let socket_path = env::current_dir()
