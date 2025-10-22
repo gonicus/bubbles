@@ -153,7 +153,7 @@ jobs:
           COPY binaries/bubbles .
           COPY --from=0 /usr/bin/socat1 ./socat
           COPY --from=0 /usr/bin/oras .
-          COPY scripts /opt/artifacts/scripts
+          COPY ./bubbles-app/scripts /opt/artifacts/scripts
           VOLUME ["/output"]
           ENTRYPOINT ["/bin/sh", "-c"]
           CMD ["cp /opt/artifacts/bin/* /output && cp -r /opt/artifacts/runtime_libs /output && cp -r /opt/artifacts/scripts /output"]
