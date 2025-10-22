@@ -114,6 +114,7 @@ jobs:
           EOF
       - name: Build crosvm
         run: |
+          sudo apt-get update
           git submodule update --init && tools/deps/install-x86_64-debs
           cargo build --release
       - name: 'Upload Artifact'
