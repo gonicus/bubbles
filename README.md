@@ -86,7 +86,6 @@ Requirement: `podman`/`docker` for installation; `passt`
 ### Install
 
 ```
-cd $HOME/bubbles
 podman run -v "$HOME/bubbles:/output:Z" ghcr.io/gonicus/bubbles/bubbles:c3f4c775c99c7d946c1cccdafb477616c02e5fca
 ```
 
