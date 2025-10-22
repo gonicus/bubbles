@@ -103,6 +103,21 @@ LD_LIBRARY_PATH=$HOME/bubbles/runtime_libs $HOME/bubbles/bubbles
 4. Press Terminal button
 5. Enjoy mutable Debian+Nix Installation
 
+### Cheat sheet
+
+Enforcing Wayland:
+
+- Chromium: `chromium --ozone-platform=wayland`
+- Firefox: `WAYLAND_DISPLAY=wayland-0 firefox`
+- VS Code:
+    - `mkdir -p ~/.config/Code/User && echo '{"window.titleBarStyle": "custom"}' > ~/.config/Code/User/settings.json`
+    - `code --ozone-platform=wayland`
+
+Sound socket forwarding:
+
+1. On host: `socat VSOCK-LISTEN:11112,fork UNIX-CONNECT:$XDG_RUNTIME_DIR/pulse/native`
+2. On guest: `mkdir $XDG_RUNTIME_DIR/pulse && sudo chown user: $XDG_RUNTIME_DIR/pulse && socat UNIX-LISTEN:$XDG_RUNTIME_DIR/pulse/native,fork VSOCK-CONNECT:2:11112`
+
 ## Using the work in...
 
 - crosvm + sommelier
