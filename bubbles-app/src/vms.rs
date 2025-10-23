@@ -4,6 +4,7 @@ use adw::prelude::ActionRowExt;
 use gtk::{
     gio::{Subprocess, SubprocessFlags}, glib, prelude::*
 };
+use libc::SIGTERM;
 
 #[derive(PartialEq, Debug, Clone)]
 pub enum VMStatus {
@@ -200,7 +201,7 @@ pub fn build_vms_list(vms: Vec<VM>) -> gtk::Widget {
                         let image_disk_path = image_base_path.join("disk.img");
                         let image_linuz_path = image_base_path.join("vmlinuz");
                         let image_initrd_path = image_base_path.join("initrd.img");
-                        Subprocess::newv(
+                        let socat_process = Subprocess::newv(
                             &[
                                 OsStr::new(Path::new(&env::var("HOME").expect("HOME var to be set")).join("bubbles/socat").as_os_str()),
                                 OsStr::new(&format!("UNIX-LISTEN:{},fork", vsock_socket_path.to_str().expect("string"))),
@@ -208,7 +209,7 @@ pub fn build_vms_list(vms: Vec<VM>) -> gtk::Widget {
                             ],
                             SubprocessFlags::empty()
                         ).expect("start of socat process");
-                        Subprocess::newv(
+                        let passt_process = Subprocess::newv(
                             &[
                                 OsStr::new(Path::new(&env::var("HOME").expect("HOME var to be set")).join("bubbles/passt").as_os_str()),
                                 OsStr::new("-f"),
@@ -252,6 +253,10 @@ pub fn build_vms_list(vms: Vec<VM>) -> gtk::Widget {
                         wait_until_ready(vsock_socket_path.as_os_str()).await;
                         power_button_sender.send(VMStatus::Running).await.expect("channel to be open");
                         crosvm_process.wait_future().await.expect("vm to stop");
+                        socat_process.send_signal(SIGTERM); // Marker: Incompatible with Windows
+                        passt_process.send_signal(SIGTERM);
+                        socat_process.wait_future().await.expect("socat to stop");
+                        passt_process.wait_future().await.expect("passt to stop");
                         power_button_sender.send(VMStatus::NotRunning).await.expect("channel to be open");
                     } else {
                         power_button_sender.send(VMStatus::InFlux).await.expect("channel to be open");
