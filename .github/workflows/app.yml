@@ -140,6 +140,9 @@ jobs:
         with:
           path: binaries
           merge-multiple: true
+      - name: chmod binaries
+        run: |
+          chmod +x binaries/*
       - run: |
           cat > Dockerfile <<EOF
           FROM debian:trixie
