@@ -211,7 +211,7 @@ pub fn build_vms_list(vms: Vec<VM>) -> gtk::Widget {
                         ).expect("start of socat process");
                         let passt_process = Subprocess::newv(
                             &[
-                                OsStr::new(Path::new(&env::var("HOME").expect("HOME var to be set")).join("bubbles/passt").as_os_str()),
+                                OsStr::new("passt"),
                                 OsStr::new("-f"),
                                 OsStr::new("--vhost-user"),
                                 OsStr::new("--socket"),
