@@ -81,11 +81,14 @@ Imaginable opt-in Features:
 
 Right now, bubbles is distributed via a container outputting the required binaries into `$HOME/bubbles`.
 
-Requirement: `podman`/`docker` for installation; `passt`
+Requirement: `podman`/`docker` for installation; `passt`, `qemu-img`.
 
 ### Install
 
 ```
+mkdir $HOME/bubbles
+# May be different for non-SELinux systems: skip ":Z"
+# May be different for docker: You may need to chown files afterwards
 podman run -v "$HOME/bubbles:/output:Z" ghcr.io/gonicus/bubbles/bubbles:c3f4c775c99c7d946c1cccdafb477616c02e5fca
 ```
 
