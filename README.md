@@ -84,6 +84,7 @@ Requirements:
 - `podman`/`docker` for installation
 - `passt`
 - `qemu-img`
+- `curl`
 
 Loose Recommendation:
 - `btrfs` as backing filesystem (seems to optimize for disk image deduplication under the hood)
@@ -109,6 +110,16 @@ LD_LIBRARY_PATH=$HOME/bubbles/runtime_libs $HOME/bubbles/bubbles
 3. Start VM, await startup and initial setup
 4. Press Terminal button
 5. Enjoy mutable Debian+Nix Installation
+
+The installed system is a Debian Trixie with preinstalled...
+- bubbles-agent (simple agent for serving needs of the UI)
+- sommelier
+- Nix
+- Gnome Console (kgx)
+- starship (configured for nerdfonts)
+
+On first boot, it will fetch nixpkgs and a nerdfont. Later boots will be quicker.
+You can change the default terminal via the debian alternatives system.
 
 ### Cheat sheet
 
