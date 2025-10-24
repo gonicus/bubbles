@@ -63,7 +63,6 @@ Contra Bubbles:
 - Distribution via flatpak
 - MS Windows support
 - More choices beyond Debian+Nix as guest system: e. g. Arch Linux
-- Proper termination of passt+socat helpers
 
 Imaginable opt-in Features:
 
@@ -81,7 +80,13 @@ Imaginable opt-in Features:
 
 Right now, bubbles is distributed via a container outputting the required binaries into `$HOME/bubbles`.
 
-Requirement: `podman`/`docker` for installation; `passt`, `qemu-img`.
+Requirements:
+- `podman`/`docker` for installation
+- `passt`
+- `qemu-img`
+
+Loose Recommendation:
+- `btrfs` as backing filesystem (seems to optimize for disk image deduplication under the hood)
 
 ### Install
 
@@ -89,7 +94,7 @@ Requirement: `podman`/`docker` for installation; `passt`, `qemu-img`.
 mkdir $HOME/bubbles
 # May be different for non-SELinux systems: skip ":Z"
 # May be different for docker: You may need to chown files afterwards
-podman run -v "$HOME/bubbles:/output:Z" ghcr.io/gonicus/bubbles/bubbles:c3f4c775c99c7d946c1cccdafb477616c02e5fca
+podman run -v "$HOME/bubbles:/output:Z" ghcr.io/gonicus/bubbles/bubbles:e289a3a5479817c3ffad6bb62d8214e4265e8e4b
 ```
 
 ### Run
@@ -100,7 +105,7 @@ LD_LIBRARY_PATH=$HOME/bubbles/runtime_libs $HOME/bubbles/bubbles
 ```
 
 1. Press image download button, await completion
-2. Press VM creation button, restart bubbles
+2. Press VM creation button (on non-btrfs, UI may freeze a bit - to be fixed), restart bubbles
 3. Start VM, await startup and initial setup
 4. Press Terminal button
 5. Enjoy mutable Debian+Nix Installation
