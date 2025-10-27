@@ -1,5 +1,4 @@
 mod images;
-mod nixstores;
 mod vms;
 
 use adw::prelude::AdwWindowExt;
@@ -12,14 +11,12 @@ use gtk::{
 struct State {
     images: Vec<images::Image>,
     vms: Vec<vms::VM>,
-    nixstores: Vec<nixstores::NixStore>,
 }
 
 fn load_state() -> State {
     return State {
         images: images::load_images(),
         vms: vms::load_vms(),
-        nixstores: nixstores::load_nixstores(),
     };
 }
 fn build_window_content() -> gtk::Widget {
@@ -31,12 +28,6 @@ fn build_window_content() -> gtk::Widget {
         Some("images"),
         "Images",
         "drive-harddisk-system-symbolic",
-    );
-    view_stack.add_titled_with_icon(
-        &nixstores::build_nixstore_list(state.nixstores),
-        Some("nixstores"),
-        "Nix Stores",
-        "view-app-grid-symbolic",
     );
     view_stack.add_titled_with_icon(
         &vms::build_vms_list(state.vms),
