@@ -35,8 +35,16 @@ jobs:
         uses: actions/checkout@v5.0.0
         with:
           repository: google/crosvm
-          ref: b2cf2fba8bf240bc09cc396fdd677d853b158a62
-      - name: Apply passt patch (only fits into old crosvm revision)
+          ref: a96cb379acf55a75887cbba190666e7d22ff9dbf
+      - name: Revert some commits to fit passt patch
+        run: |
+          git revert --no-edit \
+            1656a1f68296baa4313b4b46e23a6c975caa7cc9 \
+            2c6f23406c41af8432c1c1ba4e3605785e959ead \
+            806e91d2fa5416b3444257e42421e07b318e26d6 \
+            ff4b721ac8b983393b0fa503000eff74ecd3de2e \
+            a96cb379acf55a75887cbba190666e7d22ff9dbf
+      - name: Apply passt patch
         run: |
           git apply - <<EOF
           diff --git a/devices/src/virtio/vhost_user_frontend/mod.rs b/devices/src/virtio/vhost_user_frontend/mod.rs
@@ -94,23 +102,6 @@ jobs:
                let dev = virtio::Gpu::new(
                    exit_evt_wrtube
                        .try_clone()
-          EOF
-      - name: 'Apply CopyPaste patch (from https://gitlab.com/talex5/crosvm/-/commit/cc29efcc00afe3c3097c567d7003d5b072f92e60)'
-        run: |
-          git apply - <<EOF
-          diff --git a/rutabaga_gfx/src/cross_domain/mod.rs b/rutabaga_gfx/src/cross_domain/mod.rs
-          index a35bf6425f0b4581426ad7d9eeda7341873e2811..56c6b72826eb059d9cd9ee225ded0deb9fd8abd3 100644
-          --- a/rutabaga_gfx/src/cross_domain/mod.rs
-          +++ b/rutabaga_gfx/src/cross_domain/mod.rs
-          @@ -344,7 +344,7 @@ impl CrossDomainWorker {
-                                               )
-                                           }
-                                           Ok(DescriptorType::WritePipe) => {
-          -                                    *identifier_type = CROSS_DOMAIN_ID_TYPE_VIRTGPU_BLOB;
-          +                                    *identifier_type = CROSS_DOMAIN_ID_TYPE_WRITE_PIPE;
-                                               add_item(
-                                                   &self.item_state,
-                                                   CrossDomainItem::WaylandWritePipe(WritePipe::new(
           EOF
       - name: Build crosvm
         run: |
