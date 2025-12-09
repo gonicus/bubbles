@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-adw = { version = "0.7.1", package = "libadwaita", features = ["v1_5"] }
-async-channel = "2.3.1"
-gtk = { version = "0.9.4", package = "gtk4", features = ["v4_16"] }
 libc = "0.2.168"
+relm4 = { version = "0.10.0", features = ["css", "macros", "libadwaita", "gnome_48"] }
+tokio = { version = "1.47", features = ["fs"] }
+gtk = { version = "0.10", package = "gtk4" }
