@@ -38,6 +38,8 @@ jobs:
           fetch-depth: 0
       - name: Revert some commits to fit passt patch
         run: |
+          git config --global user.email "muehlfort@gonicus.de"
+          git config --global user.name "CI"
           git checkout a96cb379acf55a75887cbba190666e7d22ff9dbf
           git revert --no-edit \
             1656a1f68296baa4313b4b46e23a6c975caa7cc9 \
