@@ -35,9 +35,9 @@ jobs:
         uses: actions/checkout@v5.0.0
         with:
           repository: google/crosvm
-          ref: a96cb379acf55a75887cbba190666e7d22ff9dbf
       - name: Revert some commits to fit passt patch
         run: |
+          git checkout a96cb379acf55a75887cbba190666e7d22ff9dbf
           git revert --no-edit \
             1656a1f68296baa4313b4b46e23a6c975caa7cc9 \
             2c6f23406c41af8432c1c1ba4e3605785e959ead \
