@@ -342,7 +342,7 @@ impl AsyncFactoryComponent for VmEntry {
                                 &[
                                     OsStr::new(Path::new(&env::var("HOME").expect("HOME var to be set")).join("bubbles/socat").as_os_str()),
                                     OsStr::new(&format!("UNIX-LISTEN:{},fork", vsock_socket_path.to_str().expect("string"))),
-                                    OsStr::new("VSOCK-CONNECT:3:11111"),
+                                    OsStr::new(&format!("VSOCK-CONNECT:{}:11111", index.current_index() + 10)),
                                 ],
                                 SubprocessFlags::empty()
                             ).expect("start of socat process");
@@ -374,7 +374,7 @@ impl AsyncFactoryComponent for VmEntry {
                                     OsStr::new("--socket"),
                                     crosvm_socket_path.as_os_str(),
                                     OsStr::new("--vsock"),
-                                    OsStr::new("3"),
+                                    OsStr::new(&format!("{}", index.current_index() + 10)),
                                     OsStr::new("--gpu"),
                                     OsStr::new("context-types=cross-domain,displays=[]"),
                                     OsStr::new("--wayland-sock"),
