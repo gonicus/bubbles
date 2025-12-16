@@ -57,7 +57,6 @@ Contra Bubbles:
 
 ### TODO's in Bubbles
 
-- Management of multiple VMs/Bubbles
 - Distribution via flatpak
 - MS Windows support
 - More choices beyond Debian+Nix as guest system: e. g. Arch Linux
