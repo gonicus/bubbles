@@ -1,7 +1,5 @@
 # Bubbles - lightweight Linux working environments
 
-**THIS PROJECT'S UX IS VERY MUCH IN AN UNPOLISHED STAGE**
-
 **Quick**: Starts up in just a few seconds
 
 **Integrated**: Wayland windows are managed on the host compositor
@@ -95,7 +93,7 @@ Loose Recommendation:
 mkdir $HOME/bubbles
 # May be different for non-SELinux systems: skip ":Z"
 # May be different for docker: You may need to chown files afterwards
-podman run -v "$HOME/bubbles:/output:Z" ghcr.io/gonicus/bubbles/bubbles:e289a3a5479817c3ffad6bb62d8214e4265e8e4b
+podman run -v "$HOME/bubbles:/output:Z" ghcr.io/gonicus/bubbles/bubbles:841f165307e5d15b789cd8fc1aab40b7ecef6f3e
 ```
 
 ### Run
@@ -139,6 +137,7 @@ Sound socket forwarding:
 ## Using the work in...
 
 - crosvm + sommelier
+- Relm4
 - rust-gtk4
 - passt
 - distrobuilder
