@@ -3,9 +3,8 @@ name: AppBuild
 on:
   push:
     branches: [ "main" ]
-    paths-ignore:
-    - '.github/workflows/vm-image.yml'
-  workflow_dispatch:
+    paths:
+    - "bubbles-app/**"
 
 jobs:
   build-ui:

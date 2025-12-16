@@ -5,7 +5,7 @@ on:
     branches: [ "main" ]
     paths:
     - '.github/workflows/vm-image.yml'
-  workflow_dispatch:
+    - 'bubbles-agent/**'
 
 jobs:
   build-agent:
