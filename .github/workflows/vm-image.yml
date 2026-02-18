@@ -62,7 +62,7 @@ jobs:
       - uses: actions/checkout@v5.0.0
         with:
           repository: lxc/lxc-ci
-          ref: bc78ee5e27ade74f31162f66f370d89ec2567667
+          ref: 3b85aa3c08e9cef885f31aae3a69f066b6c097d1
           sparse-checkout: |
             images/debian.yaml
           sparse-checkout-cone-mode: false
@@ -78,8 +78,8 @@ jobs:
           cat lxc-ci/images/debian.yaml | yq -y '
             .image = {
               "distribution": "debian",
-              "name": "debian-trixie-x86_64",
-              "release": "trixie",
+              "name": "debian-forky-x86_64",
+              "release": "forky",
               "description": "Debian",
               "architecture": "x86_64"
             }' | yq -y '
@@ -158,11 +158,12 @@ jobs:
           #!/bin/bash
           set -eux
           chmod +x /usr/local/bin/*
-          nix-channel --add https://nixos.org/channels/nixos-25.05 nixpkgs
+          nix-channel --add https://nixos.org/channels/nixos-25.11 nixpkgs
           mkdir -p /etc/skel/.config
           starship preset nerd-font-symbols -o /etc/skel/.config/starship.toml
           useradd -m -G sudo,render,video,nix-users -s /bin/bash -p "" user
           mkdir -p /home/user/.config/systemd/user/default.target.wants
+          chown -R user: /home/user/.config
           ln -s /etc/systemd/user/sommelier.service /home/user/.config/systemd/user/default.target.wants/sommelier.service
 
           systemctl enable bubbles.service
@@ -195,7 +196,6 @@ jobs:
           [Service]
           Type=oneshot
           RemainAfterExit=true
-          ExecStartPre=-/usr/bin/nix-channel --update
           ExecStart=/bin/bash -c 'ls /usr/local/share/fonts/README.md || (cd /usr/local/share/fonts && curl -sSL -O https://github.com/ryanoasis/nerd-fonts/releases/download/v3.3.0/FiraCode.zip && unzip FiraCode.zip && rm FiraCode.zip)'
 
           [Install]
