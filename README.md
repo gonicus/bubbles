@@ -103,24 +103,37 @@ LD_LIBRARY_PATH=$HOME/bubbles/runtime_libs $HOME/bubbles/bubbles
 ```
 
 1. Press image download button, await completion
-2. Press VM creation button (on non-btrfs, UI may freeze a bit - to be fixed), restart bubbles
+2. Press VM creation button, enter name, confirm
 3. Start VM, await startup and initial setup
 4. Press Terminal button
 5. Enjoy mutable Debian+Nix Installation
 
 The installed system is a Debian Trixie with preinstalled...
-- bubbles-agent (simple agent for serving needs of the UI)
-- sommelier
-- Nix
 - Gnome Console (kgx)
+- Nix 
+- sommelier
 - starship (configured for nerdfonts)
+- bubbles-agent (simple agent for serving needs of the UI)
 
-On first boot, it will fetch nixpkgs and a nerdfont. Later boots will be quicker.
-You can change the default terminal via the debian alternatives system.
+On first boot, it will fetch a nerdfont.
 
 ### Cheat sheet
 
-Enforcing Wayland:
+#### Install home-manager (recommended, it's worth it)
+
+```
+$ sudo nix-channel --update
+$ nix-shell -p home-manager
+$ home-manager init
+$ /home/user/.config/home-manager/home.nix # Add packages from nixpkgs
+$ home-manager switch # Ensure that /home/user/.nix-profile/bin is in PATH afterwards
+```
+
+#### Change default terminal
+
+- `sudo update-alternatives --config x-terminal-emulator`
+
+#### Enforcing Wayland
 
 - Chromium: `chromium --ozone-platform=wayland`
 - Firefox: `WAYLAND_DISPLAY=wayland-0 firefox`
@@ -128,7 +141,7 @@ Enforcing Wayland:
     - `mkdir -p ~/.config/Code/User && echo '{"window.titleBarStyle": "custom"}' > ~/.config/Code/User/settings.json`
     - `code --ozone-platform=wayland`
 
-Sound socket forwarding:
+#### Sound socket forwarding
 
 1. On host: `socat VSOCK-LISTEN:11112,fork UNIX-CONNECT:$XDG_RUNTIME_DIR/pulse/native`
 2. On guest: `mkdir $XDG_RUNTIME_DIR/pulse && sudo chown user: $XDG_RUNTIME_DIR/pulse && socat UNIX-LISTEN:$XDG_RUNTIME_DIR/pulse/native,fork VSOCK-CONNECT:2:11112`
