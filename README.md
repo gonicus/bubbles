@@ -36,14 +36,19 @@ mkdir $HOME/bubbles
 # May be different for non-SELinux systems: skip ":Z"
 # May be different for docker: You may need to chown files afterwards
 podman run -v "$HOME/bubbles:/output:Z" ghcr.io/gonicus/bubbles/bubbles:841f165307e5d15b789cd8fc1aab40b7ecef6f3e
+# For .desktop file:
+cat > ~/.local/share/applications/bubbles.desktop <<EOF
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Bubbles
+Exec=sh -c 'cd $HOME/bubbles && LD_LIBRARY_PATH=$HOME/bubbles/runtime_libs $HOME/bubbles/bubbles'
+EOF
 ```
 
 ### Run
 
-```
-cd $HOME/bubbles
-LD_LIBRARY_PATH=$HOME/bubbles/runtime_libs $HOME/bubbles/bubbles
-```
+Start "Bubbles" via desktop, then:
 
 1. Press image download button, await completion
 2. Press VM creation button, enter name, confirm
