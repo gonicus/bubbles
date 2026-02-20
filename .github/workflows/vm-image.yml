@@ -159,16 +159,12 @@ jobs:
           set -eux
           chmod +x /usr/local/bin/*
           nix-channel --add https://nixos.org/channels/nixos-25.11 nixpkgs
-          nix-channel --update
           mkdir -p /etc/skel/.config
           starship preset nerd-font-symbols -o /etc/skel/.config/starship.toml
           useradd -m -G sudo,render,video,nix-users -s /bin/bash -p "" user
           mkdir -p /home/user/.config/systemd/user/default.target.wants
           ln -s /etc/systemd/user/sommelier.service /home/user/.config/systemd/user/default.target.wants/sommelier.service
           chown -R user: /home/user/.config
-
-          su - user -c 'nix-shell -p home-manager --command "home-manager init && home-manager switch"'
-          nix-collect-garbage
 
           systemctl enable bubbles.service
           systemctl enable bubbles-proxy.service
