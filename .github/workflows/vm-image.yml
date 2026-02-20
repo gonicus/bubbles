@@ -78,8 +78,8 @@ jobs:
           cat lxc-ci/images/debian.yaml | yq -y '
             .image = {
               "distribution": "debian",
-              "name": "debian-forky-x86_64",
-              "release": "forky",
+              "name": "debian-trixie-x86_64",
+              "release": "trixie",
               "description": "Debian",
               "architecture": "x86_64"
             }' | yq -y '
