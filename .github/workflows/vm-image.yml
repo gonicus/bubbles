@@ -49,10 +49,49 @@ jobs:
           name: sommelier
           path: /usr/local/bin/sommelier
           retention-days: 1
+  build-mesa:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y meson ninja-build pkg-config python3-mako \
+            bison flex libdrm-dev libwayland-dev wayland-protocols \
+            libwayland-egl-backend-dev libxcb-dri3-dev libxcb-present-dev \
+            libxshmfence-dev libelf-dev libexpat1-dev libzstd-dev \
+            zlib1g-dev llvm-dev libclang-dev cmake libglvnd-dev glslang-tools
+      - name: Build Mesa with amdgpu-virtio
+        run: |
+          git init mesa && cd mesa
+          git fetch --depth=1 https://gitlab.freedesktop.org/mesa/mesa.git a8baedef2905567a461191475cbd3565a21843db
+          git checkout FETCH_HEAD
+          meson setup builddir-virtio \
+            -Damdgpu-virtio=true \
+            -Dgallium-drivers=radeonsi \
+            -Dvulkan-drivers=amd \
+            -Dplatforms=wayland \
+            -Dopengl=true \
+            -Dglx=disabled \
+            --prefix=/usr/local
+          ninja -C builddir-virtio
+          DESTDIR=$HOME/mesa-install ninja -C builddir-virtio install
+      - name: Create DRI driver symlink
+        run: |
+          cd $HOME/mesa-install/usr/local/lib/x86_64-linux-gnu
+          mkdir -p dri
+          cd dri
+          ln -sf ../libgallium-*.so virtio_gpu_dri.so
+      - name: 'Upload Artifact'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mesa-libs
+          path: ~/mesa-install/usr/local/lib/x86_64-linux-gnu/
+          retention-days: 1
   build-vm:
     needs:
     - build-agent
     - build-sommelier
+    - build-mesa
     runs-on: ubuntu-latest
 
     permissions:
@@ -113,6 +152,11 @@ jobs:
               },
               {
                 "generator": "copy",
+                "path": "/usr/local/lib/x86_64-linux-gnu/",
+                "source": "./mesa-libs"
+              },
+              {
+                "generator": "copy",
                 "path": "/etc/systemd/system/",
                 "source": "./etcsystemdsystem"
               },
@@ -169,6 +213,7 @@ jobs:
           #!/bin/bash
           set -eux
           chmod +x /usr/local/bin/*
+          ldconfig
           nix-channel --add https://nixos.org/channels/nixos-25.11 nixpkgs
           mkdir -p /etc/skel/.config
           starship preset nerd-font-symbols -o /etc/skel/.config/starship.toml
@@ -236,7 +281,7 @@ jobs:
           Description=Sommelier
 
           [Service]
-          ExecStart=/usr/local/bin/sommelier --parent --virtgpu-channel
+          ExecStart=/usr/local/bin/sommelier --parent --virtgpu-channel --enable-linux-dmabuf
 
           [Install]
           WantedBy=default.target
@@ -281,8 +326,14 @@ jobs:
       - name: Download bubbles-agent and sommelier
         uses: actions/download-artifact@v5
         with:
+          pattern: '{bubbles-agent,sommelier}'
           path: usrlocalbin
           merge-multiple: true
+      - name: Download Mesa libraries
+        uses: actions/download-artifact@v5
+        with:
+          name: mesa-libs
+          path: mesa-libs
       - run: |
           nix-shell -p distrobuilder --command 'ln -s $(which distrobuilder) distrobuilder'
           nix-shell -p oras --command 'ln -s $(which oras) oras'

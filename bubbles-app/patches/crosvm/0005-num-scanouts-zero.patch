@@ -1,0 +1,13 @@
+diff --git a/devices/src/virtio/gpu/mod.rs b/devices/src/virtio/gpu/mod.rs
+index c5d6977be..4f32c4bdd 100644
+--- a/devices/src/virtio/gpu/mod.rs
++++ b/devices/src/virtio/gpu/mod.rs
+@@ -1755,7 +1755,7 @@ impl Gpu {
+         virtio_gpu_config {
+             events_read: Le32::from(events_read),
+             events_clear: Le32::from(0),
+-            num_scanouts: Le32::from(VIRTIO_GPU_MAX_SCANOUTS as u32),
++            num_scanouts: Le32::from(0),
+             num_capsets: Le32::from(num_capsets),
+         }
+     }

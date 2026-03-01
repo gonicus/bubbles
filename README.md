@@ -18,13 +18,11 @@
 
 ## Getting started
 
-Right now, bubbles is distributed via a container outputting the required binaries into `$HOME/bubbles`.
+Bubbles is distributed as a Flatpak.
 
 Requirements:
-- `podman`/`docker` for installation
-- `passt`
-- `qemu-img`
-- `curl`
+- `flatpak`
+- `passt` (must be installed on the host: `dnf install passt` or `apt install passt`)
 
 Loose Recommendation:
 - `btrfs` as backing filesystem (seems to optimize for disk image deduplication under the hood)
@@ -32,19 +30,22 @@ Loose Recommendation:
 ### Install
 
 ```
-mkdir $HOME/bubbles
-# May be different for non-SELinux systems: skip ":Z"
-# May be different for docker: You may need to chown files afterwards
-podman run -v "$HOME/bubbles:/output:Z" ghcr.io/gonicus/bubbles/bubbles:841f165307e5d15b789cd8fc1aab40b7ecef6f3e
-# For .desktop file:
-cat > ~/.local/share/applications/bubbles.desktop <<EOF
-[Desktop Entry]
-Type=Application
-Version=1.0
-Name=Bubbles
-Exec=sh -c 'cd $HOME/bubbles && LD_LIBRARY_PATH=$HOME/bubbles/runtime_libs $HOME/bubbles/bubbles'
-EOF
+flatpak install de.gonicus.Bubbles.flatpak
 ```
+
+The `.flatpak` bundle is attached to each CI run as a build artifact. Download it and install with the command above.
+
+### Building from source
+
+Before running `flatpak-builder`, populate `bubbles-app/prebuilt/` and generate `cargo-sources.json` using the helper script:
+
+```bash
+CROSVM=/path/to/crosvm bubbles-app/prebuild.bash
+cd bubbles-app
+flatpak-builder --user --install --force-clean build-dir de.gonicus.Bubbles.json
+```
+
+`prebuild.bash` requires `podman` and `curl`. A pre-built `crosvm` binary must be provided via the `CROSVM` env var (see `.github/workflows/app.yml` for the build steps).
 
 ### Run
 
@@ -138,7 +139,6 @@ Contra Bubbles:
 
 ### TODO's in Bubbles
 
-- Distribution via flatpak
 - MS Windows support
 - More choices beyond Debian+Nix as guest system: e. g. Arch Linux
 

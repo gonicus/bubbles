@@ -1,0 +1,125 @@
+{
+  "app-id": "de.gonicus.Bubbles",
+  "runtime": "org.gnome.Platform",
+  "runtime-version": "49",
+  "sdk": "org.gnome.Sdk",
+  "sdk-extensions": ["org.freedesktop.Sdk.Extension.rust-stable"],
+  "command": "bubbles",
+  "finish-args": [
+    "--share=ipc",
+    "--socket=wayland",
+    "--device=dri",
+    "--filesystem=home",
+    "--share=network",
+    "--talk-name=org.freedesktop.Flatpak"
+  ],
+  "build-options": {
+    "append-path": "/usr/lib/sdk/rust-stable/bin",
+    "env": {
+      "CARGO_HOME": "/run/build/bubbles/cargo"
+    }
+  },
+  "modules": [
+    {
+      "name": "runtime-libs-compat",
+      "buildsystem": "simple",
+      "build-commands": [
+        "install -d /app/lib/compat",
+        "find . -maxdepth 1 -type f -exec install -m755 {} /app/lib/compat/ \\;"
+      ],
+      "sources": [
+        { "type": "dir", "path": "prebuilt/lib" }
+      ]
+    },
+    {
+      "name": "qemu-img",
+      "buildsystem": "simple",
+      "build-commands": [
+        "install -Dm755 qemu-img /app/bin/qemu-img.bin",
+        "install -Dm755 qemu-img-wrap /app/bin/qemu-img"
+      ],
+      "sources": [
+        { "type": "file", "path": "prebuilt/qemu-img" },
+        {
+          "type": "script",
+          "dest-filename": "qemu-img-wrap",
+          "commands": [
+            "SELF=$(realpath \"$0\")",
+            "DIR=$(dirname \"$SELF\")",
+            "exec env LD_LIBRARY_PATH=\"${DIR}/../lib/compat${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}\" \"${DIR}/qemu-img.bin\" \"$@\""
+          ]
+        }
+      ]
+    },
+    {
+      "name": "oras",
+      "buildsystem": "simple",
+      "build-commands": [
+        "install -Dm755 oras /app/bin/oras"
+      ],
+      "sources": [
+        {
+          "type": "archive",
+          "url": "https://github.com/oras-project/oras/releases/download/v1.2.2/oras_1.2.2_linux_amd64.tar.gz",
+          "sha256": "bff970346470e5ef888e9f2c0bf7f8ee47283f5a45207d6e7a037da1fb0eae0d",
+          "strip-components": 0
+        }
+      ]
+    },
+    {
+      "name": "crosvm",
+      "buildsystem": "simple",
+      "build-commands": [
+        "install -Dm755 crosvm /app/bin/crosvm.bin",
+        "install -Dm755 crosvm-wrap /app/bin/crosvm"
+      ],
+      "sources": [
+        { "type": "file", "path": "prebuilt/crosvm" },
+        {
+          "type": "script",
+          "dest-filename": "crosvm-wrap",
+          "commands": [
+            "SELF=$(realpath \"$0\")",
+            "DIR=$(dirname \"$SELF\")",
+            "exec env LD_LIBRARY_PATH=\"${DIR}/../lib/compat${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}\" \"${DIR}/crosvm.bin\" \"$@\""
+          ]
+        }
+      ]
+    },
+    {
+      "name": "socat",
+      "buildsystem": "simple",
+      "build-commands": [
+        "install -Dm755 socat /app/bin/socat.bin",
+        "install -Dm755 socat-wrap /app/bin/socat"
+      ],
+      "sources": [
+        { "type": "file", "path": "prebuilt/socat" },
+        {
+          "type": "script",
+          "dest-filename": "socat-wrap",
+          "commands": [
+            "SELF=$(realpath \"$0\")",
+            "DIR=$(dirname \"$SELF\")",
+            "exec env LD_LIBRARY_PATH=\"${DIR}/../lib/compat${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}\" \"${DIR}/socat.bin\" \"$@\""
+          ]
+        }
+      ]
+    },
+    {
+      "name": "bubbles",
+      "buildsystem": "simple",
+      "build-commands": [
+        "cargo --offline build --release",
+        "install -Dm755 target/release/bubbles /app/bin/bubbles",
+        "install -Dm644 de.gonicus.Bubbles.desktop /app/share/applications/de.gonicus.Bubbles.desktop",
+        "install -Dm644 de.gonicus.Bubbles.appdata.xml /app/share/metainfo/de.gonicus.Bubbles.appdata.xml",
+        "install -Dm644 de.gonicus.Bubbles.svg /app/share/icons/hicolor/scalable/apps/de.gonicus.Bubbles.svg"
+      ],
+      "sources": [
+        { "type": "dir", "path": "." },
+        "cargo-sources.json"
+      ]
+    }
+  ]
+}

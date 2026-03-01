@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Bubbles
+Comment=Lightweight Linux working environments
+Exec=bubbles
+Icon=de.gonicus.Bubbles
+Categories=System;Virtualization;
