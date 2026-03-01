@@ -23,6 +23,7 @@ PATCHES_DIR="$SCRIPT_DIR/patches/crosvm"
 
 # --- crosvm source configuration ---
 CROSVM_COMMIT="a96cb379acf55a75887cbba190666e7d22ff9dbf"
+VIRGLRENDERER_COMMIT="ca50e008863837e094747a69974dde3ae148aeaa"
 CROSVM_REVERTS=(
     1656a1f68296baa4313b4b46e23a6c975caa7cc9
     2c6f23406c41af8432c1c1ba4e3605785e959ead
@@ -55,7 +56,7 @@ crosvm_cache_key() {
     reverts_str=$(printf '%s\n' "${CROSVM_REVERTS[@]}")
     local patches_hash
     patches_hash=$(cat "$PATCHES_DIR"/*.patch 2>/dev/null | sha256sum | awk '{print $1}')
-    echo -n "${CROSVM_COMMIT}:${reverts_str}:${patches_hash}" | sha256sum | awk '{print $1}'
+    echo -n "${CROSVM_COMMIT}:${VIRGLRENDERER_COMMIT}:${reverts_str}:${patches_hash}" | sha256sum | awk '{print $1}'
 }
 
 if [ -n "${CROSVM:-}" ]; then
@@ -92,15 +93,52 @@ else
         echo "    Initializing submodules..."
         git submodule update --init
 
+        echo "    Cloning virglrenderer..."
+        git init "$TMPDIR_CROSVM/virglrenderer"
+        git -C "$TMPDIR_CROSVM/virglrenderer" fetch --depth=1 \
+            https://gitlab.freedesktop.org/virgl/virglrenderer.git "$VIRGLRENDERER_COMMIT"
+        git -C "$TMPDIR_CROSVM/virglrenderer" checkout FETCH_HEAD
+
         echo "    Building in container (this may take a while)..."
         podman run -d --name "$CROSVM_CONTAINER" \
             -v "$TMPDIR_CROSVM/crosvm:/src:Z" \
+            -v "$TMPDIR_CROSVM/virglrenderer:/virglrenderer:Z" \
             rust:trixie sleep infinity
 
-        podman exec "$CROSVM_CONTAINER" bash -c \
-            'cd /src && apt-get update && sed -i "s/sudo //" tools/deps/install-x86_64-debs && tools/deps/install-x86_64-debs && cargo build --release'
+        # Build virglrenderer first (with amdgpu-experimental DRM renderer)
+        podman exec "$CROSVM_CONTAINER" bash -c '
+            apt-get update
+            apt-get install -y meson ninja-build libgbm-dev libdrm-dev libepoxy-dev pkg-config python3-yaml
+            cd /virglrenderer
+            meson setup builddir --prefix=/usr/local \
+                -Dvenus=true -Dplatforms=egl -Ddrm-renderers=amdgpu-experimental
+            ninja -C builddir
+            DESTDIR=/opt/virglrenderer-install ninja -C builddir install
+            find /opt/virglrenderer-install -name virglrenderer.pc \
+                -exec sed -i "s|^prefix=.*|prefix=/opt/virglrenderer-install/usr/local|" {} \;
+        '
+
+        # Detect the library directory virglrenderer was installed into
+        VIRGL_LIBDIR=$(podman exec "$CROSVM_CONTAINER" \
+            find /opt/virglrenderer-install/usr/local -name 'libvirglrenderer.so' -printf '%h' -quit)
+
+        # Build crosvm with virgl_renderer feature
+        podman exec "$CROSVM_CONTAINER" bash -c "
+            cd /src
+            sed -i 's/sudo //' tools/deps/install-x86_64-debs && tools/deps/install-x86_64-debs
+            PKG_CONFIG_PATH=${VIRGL_LIBDIR}/pkgconfig \
+            LD_LIBRARY_PATH=${VIRGL_LIBDIR} \
+            cargo build --release --features virgl_renderer
+        "
 
         podman cp "$CROSVM_CONTAINER:/src/target/release/crosvm" "$PREBUILT_DIR/crosvm"
+
+        # Copy virglrenderer libraries
+        echo "    Copying virglrenderer libraries..."
+        podman exec "$CROSVM_CONTAINER" bash -c "ls ${VIRGL_LIBDIR}/" | while read -r f; do
+            podman cp "$CROSVM_CONTAINER:${VIRGL_LIBDIR}/$f" "$PREBUILT_DIR/lib/$f"
+            echo "    → prebuilt/lib/$f"
+        done
         chmod +x "$PREBUILT_DIR/crosvm"
         echo "$CACHE_KEY" > "$CACHE_FILE"
 

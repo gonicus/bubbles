@@ -36,6 +36,53 @@ fn make_host_args(args: &[&OsStr]) -> Vec<OsString> {
     }
 }
 
+fn make_host_args_with_env(env_vars: &[&str], args: &[&OsStr]) -> Vec<OsString> {
+    if is_flatpak() {
+        let uid = unsafe { libc::getuid() };
+        let mut v: Vec<OsString> = vec![
+            "flatpak-spawn".into(),
+            "--host".into(),
+            format!("--env=XDG_RUNTIME_DIR=/run/user/{}", uid).into(),
+        ];
+        for var in env_vars {
+            v.push(format!("--env={}", var).into());
+        }
+        v.extend(args.iter().map(|a| (*a).to_owned()));
+        v
+    } else {
+        // For non-Flatpak, set env vars in current process (inherited by child)
+        for var in env_vars {
+            if let Some((key, val)) = var.split_once('=') {
+                env::set_var(key, val);
+            }
+        }
+        args.iter().map(|a| (*a).to_owned()).collect()
+    }
+}
+
+/// Detect whether the host has an AMD GPU by checking PCI vendor IDs.
+/// Returns true if any render node belongs to AMD (vendor 0x1002).
+/// In Flatpak, /dev/dri is accessible via --device=dri and sysfs is readable.
+fn host_has_amd_gpu() -> bool {
+    let dri_path = Path::new("/sys/class/drm");
+    if let Ok(entries) = fs::read_dir(dri_path) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
+            if !name_str.starts_with("renderD") {
+                continue;
+            }
+            let vendor_path = entry.path().join("device/vendor");
+            if let Ok(vendor) = fs::read_to_string(&vendor_path) {
+                if vendor.trim() == "0x1002" {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 fn flatpak_host_bin(name: &str) -> PathBuf {
     // /.flatpak-info is always readable inside the sandbox and contains
     // app-path=<host path> for the actual installation (user or system).
@@ -453,33 +500,47 @@ impl AsyncFactoryComponent for VmEntry {
                             let wayland_sock = wayland_sock_path();
                             let vsock_cid = format!("{}", index.current_index() + 10);
                             let passt_socket_str = format!("net,socket={}", passt_socket_path.to_str().expect("string"));
-                            let crosvm_host_args = make_host_args(&[
-                                crosvm_bin.as_os_str(),
-                                OsStr::new("run"),
-                                OsStr::new("--name"),
-                                OsStr::new(&vm_name),
-                                OsStr::new("--cpus"),
-                                OsStr::new("num-cores=4"),
-                                OsStr::new("-m"),
-                                OsStr::new("7000"),
-                                OsStr::new("--rwdisk"),
-                                image_disk_path.as_os_str(),
-                                OsStr::new("--initrd"),
-                                image_initrd_path.as_os_str(),
-                                OsStr::new("--socket"),
-                                crosvm_socket_path.as_os_str(),
-                                OsStr::new("--vsock"),
-                                OsStr::new(&vsock_cid),
-                                OsStr::new("--gpu"),
-                                OsStr::new("context-types=cross-domain,displays=[]"),
-                                OsStr::new("--wayland-sock"),
-                                wayland_sock.as_os_str(),
-                                OsStr::new("--vhost-user"),
-                                OsStr::new(&passt_socket_str),
-                                OsStr::new("-p"),
-                                OsStr::new("root=/dev/vda2"),
-                                image_linuz_path.as_os_str(),
-                            ]);
+                            let is_amd = host_has_amd_gpu();
+                            let gpu_flag = if is_amd {
+                                "backend=virglrenderer,context-types=drm:cross-domain,displays=[]"
+                            } else {
+                                "context-types=cross-domain,displays=[]"
+                            };
+                            let env_vars: Vec<&str> = if is_amd {
+                                vec!["VIRGL_GBM_LAYOUT_FORCE_ENABLE=true"]
+                            } else {
+                                vec![]
+                            };
+                            let crosvm_host_args = make_host_args_with_env(
+                                &env_vars,
+                                &[
+                                    crosvm_bin.as_os_str(),
+                                    OsStr::new("run"),
+                                    OsStr::new("--name"),
+                                    OsStr::new(&vm_name),
+                                    OsStr::new("--cpus"),
+                                    OsStr::new("num-cores=4"),
+                                    OsStr::new("-m"),
+                                    OsStr::new("7000"),
+                                    OsStr::new("--rwdisk"),
+                                    image_disk_path.as_os_str(),
+                                    OsStr::new("--initrd"),
+                                    image_initrd_path.as_os_str(),
+                                    OsStr::new("--socket"),
+                                    crosvm_socket_path.as_os_str(),
+                                    OsStr::new("--vsock"),
+                                    OsStr::new(&vsock_cid),
+                                    OsStr::new("--gpu"),
+                                    OsStr::new(gpu_flag),
+                                    OsStr::new("--wayland-sock"),
+                                    wayland_sock.as_os_str(),
+                                    OsStr::new("--vhost-user"),
+                                    OsStr::new(&passt_socket_str),
+                                    OsStr::new("-p"),
+                                    OsStr::new("root=/dev/vda2"),
+                                    image_linuz_path.as_os_str(),
+                                ],
+                            );
                             let crosvm_host_args_ref: Vec<&OsStr> = crosvm_host_args.iter().map(OsString::as_os_str).collect();
                             let crosvm_process = gtk::gio::Subprocess::newv(
                                 &crosvm_host_args_ref,

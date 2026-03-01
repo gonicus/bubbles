@@ -70,10 +70,20 @@
       "name": "crosvm",
       "buildsystem": "simple",
       "build-commands": [
-        "install -Dm755 crosvm /app/bin/crosvm"
+        "install -Dm755 crosvm /app/bin/crosvm.bin",
+        "install -Dm755 crosvm-wrap /app/bin/crosvm"
       ],
       "sources": [
-        { "type": "file", "path": "prebuilt/crosvm" }
+        { "type": "file", "path": "prebuilt/crosvm" },
+        {
+          "type": "script",
+          "dest-filename": "crosvm-wrap",
+          "commands": [
+            "SELF=$(realpath \"$0\")",
+            "DIR=$(dirname \"$SELF\")",
+            "exec env LD_LIBRARY_PATH=\"${DIR}/../lib/compat${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}\" \"${DIR}/crosvm.bin\" \"$@\""
+          ]
+        }
       ]
     },
     {
