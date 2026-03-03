@@ -2,9 +2,10 @@ name: AppBuild
 
 on:
   push:
-    branches: [ "main" ]
-    paths:
-    - "bubbles-app/**"
+    tags: [ "v*" ]
+
+permissions:
+  contents: write
 
 jobs:
   build-flatpak:
@@ -34,8 +35,11 @@ jobs:
           flatpak build-bundle ~/.local/share/flatpak/repo \
             de.gonicus.Bubbles.flatpak de.gonicus.Bubbles
 
-      - name: Upload bundle
-        uses: actions/upload-artifact@v5
-        with:
-          name: de.gonicus.Bubbles.flatpak
-          path: de.gonicus.Bubbles.flatpak
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --title "${{ github.ref_name }}" \
+            --generate-notes \
+            de.gonicus.Bubbles.flatpak

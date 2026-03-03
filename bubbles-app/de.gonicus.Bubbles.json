@@ -25,10 +25,12 @@
       "buildsystem": "simple",
       "build-commands": [
         "install -d /app/lib/compat",
-        "find . -maxdepth 1 -type f -exec install -m755 {} /app/lib/compat/ \\;"
+        "find . -maxdepth 1 -type f -exec install -m755 {} /app/lib/compat/ \\;",
+        "for pkg in licenses/debian/*/; do pkgname=$(basename \"$pkg\"); install -d \"/app/share/licenses/de.gonicus.Bubbles/${pkgname}\"; install -m644 \"${pkg}\"* \"/app/share/licenses/de.gonicus.Bubbles/${pkgname}/\"; done"
       ],
       "sources": [
-        { "type": "dir", "path": "prebuilt/lib" }
+        { "type": "dir", "path": "prebuilt/lib" },
+        { "type": "dir", "path": "prebuilt/licenses", "dest": "licenses" }
       ]
     },
     {
@@ -36,7 +38,9 @@
       "buildsystem": "simple",
       "build-commands": [
         "install -Dm755 qemu-img /app/bin/qemu-img.bin",
-        "install -Dm755 qemu-img-wrap /app/bin/qemu-img"
+        "install -Dm755 qemu-img-wrap /app/bin/qemu-img",
+        "install -d /app/share/licenses/de.gonicus.Bubbles/qemu-img",
+        "install -m644 qemu-img-licenses/* /app/share/licenses/de.gonicus.Bubbles/qemu-img/"
       ],
       "sources": [
         { "type": "file", "path": "prebuilt/qemu-img" },
@@ -48,14 +52,16 @@
             "DIR=$(dirname \"$SELF\")",
             "exec env LD_LIBRARY_PATH=\"${DIR}/../lib/compat${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}\" \"${DIR}/qemu-img.bin\" \"$@\""
           ]
-        }
+        },
+        { "type": "dir", "path": "prebuilt/licenses/debian/qemu-img", "dest": "qemu-img-licenses" }
       ]
     },
     {
       "name": "oras",
       "buildsystem": "simple",
       "build-commands": [
-        "install -Dm755 oras /app/bin/oras"
+        "install -Dm755 oras /app/bin/oras",
+        "install -Dm644 LICENSE /app/share/licenses/de.gonicus.Bubbles/oras/LICENSE"
       ],
       "sources": [
         {
@@ -71,7 +77,8 @@
       "buildsystem": "simple",
       "build-commands": [
         "install -Dm755 crosvm /app/bin/crosvm.bin",
-        "install -Dm755 crosvm-wrap /app/bin/crosvm"
+        "install -Dm755 crosvm-wrap /app/bin/crosvm",
+        "install -Dm644 LICENSE /app/share/licenses/de.gonicus.Bubbles/crosvm/LICENSE"
       ],
       "sources": [
         { "type": "file", "path": "prebuilt/crosvm" },
@@ -83,7 +90,8 @@
             "DIR=$(dirname \"$SELF\")",
             "exec env LD_LIBRARY_PATH=\"${DIR}/../lib/compat${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}\" \"${DIR}/crosvm.bin\" \"$@\""
           ]
-        }
+        },
+        { "type": "file", "path": "patches/crosvm/LICENSE" }
       ]
     },
     {
@@ -91,7 +99,9 @@
       "buildsystem": "simple",
       "build-commands": [
         "install -Dm755 socat /app/bin/socat.bin",
-        "install -Dm755 socat-wrap /app/bin/socat"
+        "install -Dm755 socat-wrap /app/bin/socat",
+        "install -d /app/share/licenses/de.gonicus.Bubbles/socat",
+        "install -m644 socat-licenses/* /app/share/licenses/de.gonicus.Bubbles/socat/"
       ],
       "sources": [
         { "type": "file", "path": "prebuilt/socat" },
@@ -103,7 +113,8 @@
             "DIR=$(dirname \"$SELF\")",
             "exec env LD_LIBRARY_PATH=\"${DIR}/../lib/compat${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}\" \"${DIR}/socat.bin\" \"$@\""
           ]
-        }
+        },
+        { "type": "dir", "path": "prebuilt/licenses/debian/socat", "dest": "socat-licenses" }
       ]
     },
     {
