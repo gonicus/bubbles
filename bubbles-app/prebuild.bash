@@ -148,6 +148,70 @@ for lib in $DEPS; do
 done
 
 # ---------------------------------------------------------------------------
+# License collection — gather license/copyright files for all bundled components
+# ---------------------------------------------------------------------------
+echo "==> Collecting licenses..."
+
+LICENSES_DIR="$PREBUILT_DIR/licenses"
+rm -rf "$LICENSES_DIR"
+mkdir -p "$LICENSES_DIR/crosvm" "$LICENSES_DIR/debian"
+
+# crosvm (BSD-3-Clause) — already checked into the repo
+cp "$PATCHES_DIR/LICENSE" "$LICENSES_DIR/crosvm/LICENSE"
+echo "    → licenses/crosvm/LICENSE"
+
+# socat and qemu-img — extract copyright + source info
+# Map binary names to their Debian package names (they don't always match)
+declare -A BIN_TO_PKG=( [socat]=socat [qemu-img]=qemu-utils )
+
+for bin_name in socat qemu-img; do
+    deb_pkg="${BIN_TO_PKG[$bin_name]}"
+    pkg_dir="$LICENSES_DIR/debian/$bin_name"
+    mkdir -p "$pkg_dir"
+
+    # Extract Debian copyright file (keyed by Debian package name)
+    podman cp "$TOOLS_CONTAINER:/usr/share/doc/$deb_pkg/copyright" "$pkg_dir/copyright" 2>/dev/null || \
+        podman exec "$TOOLS_CONTAINER" sh -c "cat /usr/share/doc/${deb_pkg}/copyright" > "$pkg_dir/copyright"
+
+    # Get package version for the source offer
+    pkg_version=$(podman exec "$TOOLS_CONTAINER" dpkg-query -W -f '${Version}' "$deb_pkg")
+
+    cat > "$pkg_dir/SOURCE-INFO" <<INFO
+Source: $bin_name (Debian package: $deb_pkg)
+Version: $pkg_version
+Origin: Debian Trixie package archive
+Source package: https://packages.debian.org/source/trixie/$deb_pkg
+INFO
+
+    echo "    → licenses/debian/$bin_name/copyright"
+    echo "    → licenses/debian/$bin_name/SOURCE-INFO"
+done
+
+# Runtime library dependencies — map each .so back to its Debian package
+echo "    Collecting runtime library copyrights..."
+LIB_PKGS=$(podman exec "$TOOLS_CONTAINER" sh -c '
+    for lib in /usr/bin/socat1 /usr/bin/qemu-img; do
+        ldd "$lib" 2>/dev/null
+    done | grep "=> /" | awk "{print \$3}" | sort -u | while read -r libpath; do
+        dpkg -S "$libpath" 2>/dev/null | cut -d: -f1
+    done | sort -u
+')
+
+for pkg in $LIB_PKGS; do
+    # Skip packages we already handle directly
+    case "$pkg" in
+        socat|qemu-utils|libc6|libc-bin) continue ;;
+    esac
+
+    pkg_dir="$LICENSES_DIR/debian/$pkg"
+    mkdir -p "$pkg_dir"
+    podman cp "$TOOLS_CONTAINER:/usr/share/doc/$pkg/copyright" "$pkg_dir/copyright" 2>/dev/null || \
+        podman exec "$TOOLS_CONTAINER" sh -c "cat /usr/share/doc/${pkg}/copyright" > "$pkg_dir/copyright" 2>/dev/null || \
+        echo "    Warning: no copyright file found for $pkg"
+    echo "    → licenses/debian/$pkg/copyright"
+done
+
+# ---------------------------------------------------------------------------
 # cargo-sources.json — Flatpak needs this for offline Cargo builds
 # Run generator inside the container using apt-provided Python packages
 # (avoids needing pip/aiohttp on the host).
