@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>de.gonicus.Bubbles</id>
+  <name>Bubbles</name>
+  <summary>Lightweight Linux working environments</summary>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <description>
+    <p>Lightweight Linux working environments</p>
+  </description>
+  <url type="homepage">https://github.com/gonicus/bubbles</url>
+  <releases>
+    <release version="0.1.0" date="2026-01-01"/>
+  </releases>
+</component>

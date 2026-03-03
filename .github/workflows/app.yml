@@ -2,209 +2,44 @@ name: AppBuild
 
 on:
   push:
-    branches: [ "main" ]
-    paths:
-    - "bubbles-app/**"
+    tags: [ "v*" ]
+
+permissions:
+  contents: write
 
 jobs:
-  build-ui:
+  build-flatpak:
     runs-on: ubuntu-latest
-    container: debian:trixie
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5.0.0
-      - name: Install deps
-        run: |
-          apt-get update
-          apt-get install -y libgtk-4-dev libadwaita-1-dev cargo build-essential
-      - name: Build
-        run: |
-          cd bubbles-app/
-          cargo build --release
-      - name: 'Upload Artifact'
-        uses: actions/upload-artifact@v4
-        with:
-          name: bubbles
-          path: bubbles-app/target/release/bubbles
-          retention-days: 1
-  build-crosvm:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout crosvm
-        uses: actions/checkout@v5.0.0
-        with:
-          repository: google/crosvm
-          fetch-depth: 0
-      - name: Revert some commits to fit passt patch
-        run: |
-          git config --global user.email "muehlfort@gonicus.de"
-          git config --global user.name "CI"
-          git checkout a96cb379acf55a75887cbba190666e7d22ff9dbf
-          git revert --no-edit \
-            1656a1f68296baa4313b4b46e23a6c975caa7cc9 \
-            2c6f23406c41af8432c1c1ba4e3605785e959ead \
-            806e91d2fa5416b3444257e42421e07b318e26d6 \
-            ff4b721ac8b983393b0fa503000eff74ecd3de2e \
-            a96cb379acf55a75887cbba190666e7d22ff9dbf
-      - name: Apply passt patch
-        run: |
-          git apply - <<EOF
-          diff --git a/devices/src/virtio/vhost_user_frontend/mod.rs b/devices/src/virtio/vhost_user_frontend/mod.rs
-          index 1f847409e..8d6b5e646 100644
-          --- a/devices/src/virtio/vhost_user_frontend/mod.rs
-          +++ b/devices/src/virtio/vhost_user_frontend/mod.rs
-          @@ -26,6 +26,7 @@ use base::RawDescriptor;
-           use base::WorkerThread;
-           use snapshot::AnySnapshot;
-           use sync::Mutex;
-          +use virtio_sys::virtio_config::VIRTIO_F_VERSION_1;
-           use vm_memory::GuestMemory;
-           use vmm_vhost::message::VhostUserConfigFlags;
-           use vmm_vhost::message::VhostUserMigrationPhase;
-          @@ -178,9 +179,9 @@ impl VhostUserFrontend {
-                   if avail_features & 1 << VHOST_USER_F_PROTOCOL_FEATURES != 0 {
-                       // The vhost-user backend supports VHOST_USER_F_PROTOCOL_FEATURES; enable it.
-                       backend_client
-          -                .set_features(1 << VHOST_USER_F_PROTOCOL_FEATURES)
-          +                .set_features(1 << VHOST_USER_F_PROTOCOL_FEATURES | 1 << VIRTIO_F_VERSION_1)
-                           .map_err(Error::SetFeatures)?;
-          -            acked_features |= 1 << VHOST_USER_F_PROTOCOL_FEATURES;
-          +            acked_features |= 1 << VHOST_USER_F_PROTOCOL_FEATURES | 1 << VIRTIO_F_VERSION_1;
-           
-                       let avail_protocol_features = backend_client
-                           .get_protocol_features()
-          EOF
-      - name: 'Apply display patch (derived from https://gitlab.com/talex5/crosvm/-/commit/2e71ed5243ff1e484b6cb14c515805ed69b8ece2)'
-        run: |
-          git apply - <<EOF
-          diff --git a/src/crosvm/sys/linux/gpu.rs b/src/crosvm/sys/linux/gpu.rs
-          index 7bb3ff7af..7eba55ee7 100644
-          --- a/src/crosvm/sys/linux/gpu.rs
-          +++ b/src/crosvm/sys/linux/gpu.rs
-          @@ -125,7 +125,6 @@ pub fn create_gpu_device(
-                   gpu_params.allow_implicit_render_server_exec && !is_sandboxed;
-           
-               let mut display_backends = vec![
-          -        virtio::DisplayBackend::X(cfg.x_display.clone()),
-                   virtio::DisplayBackend::Stub,
-               ];
-           
-          @@ -134,14 +133,6 @@ pub fn create_gpu_device(
-                   display_backends.insert(0, virtio::DisplayBackend::Android(service_name.to_string()));
-               }
-           
-          -    // Use the unnamed socket for GPU display screens.
-          -    if let Some(socket_path) = cfg.wayland_socket_paths.get("") {
-          -        display_backends.insert(
-          -            0,
-          -            virtio::DisplayBackend::Wayland(Some(socket_path.to_owned())),
-          -        );
-          -    }
-          -
-               let dev = virtio::Gpu::new(
-                   exit_evt_wrtube
-                       .try_clone()
-          EOF
-      - name: 'Apply seccomp patch'
-        run: |
-          git apply - <<EOF
-          diff --git a/jail/seccomp/x86_64/common_device.policy b/jail/seccomp/x86_64/common_device.policy
-          index 66474e8ce..ac4d3e9e7 100644
-          --- a/jail/seccomp/x86_64/common_device.policy
-          +++ b/jail/seccomp/x86_64/common_device.policy
-          @@ -35,7 +35,7 @@ io_uring_register: 1
-           io_uring_enter: 1
-           kill: 1
-           lseek: 1
-          -madvise: arg2 == MADV_DONTNEED || arg2 == MADV_DONTDUMP || arg2 == MADV_REMOVE || arg2 == MADV_MERGEABLE || arg2 == MADV_FREE || arg2 == MADV_NOHUGEPAGE
-          +madvise: arg2 == MADV_GUARD_INSTALL || arg2 == MADV_GUARD_REMOVE || arg2 == MADV_DONTNEED || arg2 == MADV_DONTDUMP || arg2 == MADV_REMOVE || arg2 == MADV_MERGEABLE || arg2 == MADV_FREE || arg2 == MADV_NOHUGEPAGE
-           membarrier: 1
-           memfd_create: 1
-           mmap: arg2 in ~PROT_EXEC
-          diff --git a/jail/seccomp/x86_64/constants.json b/jail/seccomp/x86_64/constants.json
-          index efbe66b58..ac25c379a 100644
-          --- a/jail/seccomp/x86_64/constants.json
-          +++ b/jail/seccomp/x86_64/constants.json
-          @@ -990,6 +990,8 @@
-               "LO_KEY_SIZE": 32,
-               "LO_NAME_SIZE": 64,
-               "LSMT_ROOT": -1,
-          +    "MADV_GUARD_INSTALL": 102,
-          +    "MADV_GUARD_REMOVE": 103,
-               "MADV_COLD": 20,
-               "MADV_COLLAPSE": 25,
-               "MADV_DODUMP": 17,
-          diff --git a/jail/seccomp/x86_64/gpu_common.policy b/jail/seccomp/x86_64/gpu_common.policy
-          index 470265099..c87148a88 100644
-          --- a/jail/seccomp/x86_64/gpu_common.policy
-          +++ b/jail/seccomp/x86_64/gpu_common.policy
-          @@ -27,7 +27,7 @@ io_uring_setup: 1
-           io_uring_register: 1
-           io_uring_enter: 1
-           kill: 1
-          -madvise: arg2 == MADV_DONTNEED || arg2 == MADV_DONTDUMP || arg2 == MADV_REMOVE || arg2 == MADV_MERGEABLE || arg2 == MADV_FREE
-          +madvise: arg2 == MADV_GUARD_INSTALL || arg2 == MADV_GUARD_REMOVE || arg2 == MADV_DONTNEED || arg2 == MADV_DONTDUMP || arg2 == MADV_REMOVE || arg2 == MADV_MERGEABLE || arg2 == MADV_FREE
-           membarrier: 1
-           # memfd_create is used for sharing memory with wayland.
-           # For normal use case, we allow arg1 == MFD_CLOEXEC|MFD_ALLOW_SEALING, with or without MFD_NOEXEC_SEAL.
-          EOF
-      - name: Build crosvm
+      - uses: actions/checkout@v5
+
+      - name: Install Flatpak tooling
         run: |
           sudo apt-get update
-          git submodule update --init && tools/deps/install-x86_64-debs
-          cargo build --release
-      - name: 'Upload Artifact'
-        uses: actions/upload-artifact@v4
-        with:
-          name: crosvm
-          path: target/release/crosvm
-          retention-days: 1
-  build-dist:
-    needs:
-    - build-crosvm
-    - build-ui
-    runs-on: ubuntu-latest
+          sudo apt-get install -y flatpak flatpak-builder podman
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y org.gnome.Platform//49 org.gnome.Sdk//49 \
+            org.freedesktop.Sdk.Extension.rust-stable//25.08
 
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5.0.0
-      - name: Download bubbles and crosvm
-        uses: actions/download-artifact@v5
-        with:
-          path: binaries
-          merge-multiple: true
-      - name: chmod binaries
-        run: |
-          chmod +x binaries/*
-      - run: |
-          cat > Dockerfile <<EOF
-          FROM debian:trixie
-          RUN apt-get update && apt-get install -y libgtk-4-dev libadwaita-1-dev socat oras
-          RUN mkdir -p /runtime_libs && cd /usr/lib/x86_64-linux-gnu && cp libadwaita-1.so libgtk-4.so libwrap.so.0 /runtime_libs
+      - name: Build prebuilt artifacts
+        run: cd bubbles-app && ./prebuild.bash
 
-          FROM busybox
-          WORKDIR /opt/artifacts
-          COPY --from=0 /runtime_libs runtime_libs
-          WORKDIR /opt/artifacts/bin
-          COPY binaries/crosvm .
-          COPY binaries/bubbles .
-          COPY --from=0 /usr/bin/socat1 ./socat
-          COPY --from=0 /usr/bin/oras .
-          COPY ./bubbles-app/scripts /opt/artifacts/scripts
-          VOLUME ["/output"]
-          ENTRYPOINT ["/bin/sh", "-c"]
-          CMD ["cp /opt/artifacts/bin/* /output && cp -r /opt/artifacts/runtime_libs /output && cp -r /opt/artifacts/scripts /output"]
-          EOF
-      - name: Log into registry
-        uses: docker/login-action@343f7c4344506bcbf9b4de18042ae17996df046d # v3.0.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and push
+      - name: Build Flatpak
         run: |
-          docker build -t "ghcr.io/${{ github.repository }}/bubbles:${{ github.sha }}" .
-          docker push "ghcr.io/${{ github.repository }}/bubbles:${{ github.sha }}"
+          flatpak-builder --user --install --force-clean build-dir \
+            bubbles-app/de.gonicus.Bubbles.json
+
+      - name: Bundle Flatpak
+        run: |
+          flatpak build-bundle ~/.local/share/flatpak/repo \
+            de.gonicus.Bubbles.flatpak de.gonicus.Bubbles
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --title "${{ github.ref_name }}" \
+            --generate-notes \
+            de.gonicus.Bubbles.flatpak
