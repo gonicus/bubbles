@@ -128,11 +128,12 @@ chmod +x "$PREBUILT_DIR/socat" "$PREBUILT_DIR/qemu-img"
 echo "    → prebuilt/socat"
 echo "    → prebuilt/qemu-img"
 
-# Copy runtime library dependencies (excluding glibc/base system libs)
+# Copy runtime library dependencies (including glibc for non-FHS distro support)
 echo "==> Copying runtime libraries..."
 
-# Libraries that are part of glibc or universally present — skip these
-SYSTEM_LIBS="linux-vdso|ld-linux|libc\.so|libm\.so|libdl\.so|librt\.so|libpthread\.so|libgcc_s\.so|libstdc\+\+"
+# Only skip the kernel-injected vDSO — bundle everything else including glibc,
+# so binaries work on non-FHS distros (NixOS, Guix) where /lib64/ doesn't exist.
+SYSTEM_LIBS="linux-vdso"
 
 DEPS=$(podman exec "$TOOLS_CONTAINER" sh -c \
     'ldd /usr/bin/socat1 /usr/bin/qemu-img 2>/dev/null \
@@ -146,6 +147,11 @@ for lib in $DEPS; do
     podman cp "$TOOLS_CONTAINER:$lib" "$PREBUILT_DIR/lib/$libname"
     echo "    → prebuilt/lib/$libname"
 done
+
+# Bundle the dynamic linker itself (not captured by ldd grep pattern)
+podman cp "$TOOLS_CONTAINER:/lib64/ld-linux-x86-64.so.2" "$PREBUILT_DIR/lib/ld-linux-x86-64.so.2"
+chmod +x "$PREBUILT_DIR/lib/ld-linux-x86-64.so.2"
+echo "    → prebuilt/lib/ld-linux-x86-64.so.2"
 
 # ---------------------------------------------------------------------------
 # License collection — gather license/copyright files for all bundled components
@@ -200,7 +206,7 @@ LIB_PKGS=$(podman exec "$TOOLS_CONTAINER" sh -c '
 for pkg in $LIB_PKGS; do
     # Skip packages we already handle directly
     case "$pkg" in
-        socat|qemu-utils|libc6|libc-bin) continue ;;
+        socat|qemu-utils) continue ;;
     esac
 
     pkg_dir="$LICENSES_DIR/debian/$pkg"

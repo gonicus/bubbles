@@ -50,7 +50,8 @@
           "commands": [
             "SELF=$(realpath \"$0\")",
             "DIR=$(dirname \"$SELF\")",
-            "exec env LD_LIBRARY_PATH=\"${DIR}/../lib/compat${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}\" \"${DIR}/qemu-img.bin\" \"$@\""
+            "LIB=\"${DIR}/../lib/compat\"",
+            "exec \"$LIB/ld-linux-x86-64.so.2\" --library-path \"$LIB\" \"${DIR}/qemu-img.bin\" \"$@\""
           ]
         },
         { "type": "dir", "path": "prebuilt/licenses/debian/qemu-img", "dest": "qemu-img-licenses" }
@@ -81,6 +82,16 @@
       ],
       "sources": [
         { "type": "file", "path": "prebuilt/crosvm" },
+        {
+          "type": "script",
+          "dest-filename": "crosvm-wrap",
+          "commands": [
+            "SELF=$(realpath \"$0\")",
+            "DIR=$(dirname \"$SELF\")",
+            "LIB=\"${DIR}/../lib/compat\"",
+            "exec \"$LIB/ld-linux-x86-64.so.2\" --library-path \"$LIB\" \"${DIR}/crosvm.bin\" \"$@\""
+          ]
+        },
         { "type": "file", "path": "patches/crosvm/LICENSE" }
       ]
     },
@@ -101,7 +112,8 @@
           "commands": [
             "SELF=$(realpath \"$0\")",
             "DIR=$(dirname \"$SELF\")",
-            "exec env LD_LIBRARY_PATH=\"${DIR}/../lib/compat${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}\" \"${DIR}/socat.bin\" \"$@\""
+            "LIB=\"${DIR}/../lib/compat\"",
+            "exec \"$LIB/ld-linux-x86-64.so.2\" --library-path \"$LIB\" \"${DIR}/socat.bin\" \"$@\""
           ]
         },
         { "type": "dir", "path": "prebuilt/licenses/debian/socat", "dest": "socat-licenses" }
