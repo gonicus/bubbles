@@ -139,6 +139,22 @@ else
             podman cp "$CROSVM_CONTAINER:${VIRGL_LIBDIR}/$f" "$PREBUILT_DIR/lib/$f"
             echo "    → prebuilt/lib/$f"
         done
+
+        # Copy crosvm runtime library dependencies (e.g. libwayland-client, libcap)
+        echo "    Copying crosvm runtime libraries..."
+        CROSVM_DEPS=$(podman exec "$CROSVM_CONTAINER" bash -c "
+            ldd /src/target/release/crosvm 2>/dev/null \
+            | grep '=> /' | awk '{print \$3}' | sort -u")
+        for lib in $CROSVM_DEPS; do
+            libname=$(basename "$lib")
+            # Skip libs already copied (virglrenderer, vDSO, libc basics already bundled by tools step)
+            if [ -f "$PREBUILT_DIR/lib/$libname" ]; then
+                continue
+            fi
+            podman cp "$CROSVM_CONTAINER:$lib" "$PREBUILT_DIR/lib/$libname"
+            echo "    → prebuilt/lib/$libname"
+        done
+
         chmod +x "$PREBUILT_DIR/crosvm"
         echo "$CACHE_KEY" > "$CACHE_FILE"
 
