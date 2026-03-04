@@ -140,14 +140,18 @@ else
             echo "    → prebuilt/lib/$f"
         done
 
-        # Copy crosvm runtime library dependencies (e.g. libwayland-client, libcap)
-        echo "    Copying crosvm runtime libraries..."
+        # Copy the full transitive runtime library closure for crosvm.
+        # ldd already resolves the complete dependency tree (including libs
+        # needed by other libs, e.g. libepoxy pulled in by libvirglrenderer),
+        # so a single ldd call with LD_LIBRARY_PATH covering virglrenderer
+        # captures everything.
+        echo "    Copying crosvm runtime libraries (full closure)..."
         CROSVM_DEPS=$(podman exec "$CROSVM_CONTAINER" bash -c "
+            LD_LIBRARY_PATH=${VIRGL_LIBDIR} \
             ldd /src/target/release/crosvm 2>/dev/null \
             | grep '=> /' | awk '{print \$3}' | sort -u")
         for lib in $CROSVM_DEPS; do
             libname=$(basename "$lib")
-            # Skip libs already copied (virglrenderer, vDSO, libc basics already bundled by tools step)
             if [ -f "$PREBUILT_DIR/lib/$libname" ]; then
                 continue
             fi
