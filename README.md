@@ -71,11 +71,11 @@ On first boot, it will fetch a nerdfont.
 #### Install home-manager (recommended, it's worth it)
 
 ```
-$ sudo nix-channel --update
-$ nix-shell -p home-manager
-$ home-manager init
-$ vim /home/user/.config/home-manager/home.nix # Add packages from nixpkgs
-$ home-manager switch # Ensure that /home/user/.nix-profile/bin is in PATH afterwards
+$ /opt/home-manager-bootstrap init
+$ /opt/home-manager-bootstrap switch
+# Home Manager is initialized!
+$ vim ~/.config/home-manager/home.nix # Add packages from nixpkgs
+$ home-manager switch
 ```
 
 #### Change default terminal
