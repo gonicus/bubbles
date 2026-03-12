@@ -68,6 +68,17 @@ On first boot, it will fetch a nerdfont.
 
 ### Cheat sheet
 
+#### Grow bubble disk
+
+With stopped bubble, do on host:
+
+```
+cd ~/bubbles/.bubbles/vms/<BUBBLENAME>
+truncate -s +15G disk.img
+```
+
+Then start bubble.
+
 #### Install home-manager (recommended, it's worth it)
 
 ```
@@ -133,27 +144,6 @@ Contra Bubbles:
 - does not support traditional VM handling use cases
 
 </details>
-
-## Current limitations
-
-### TODO's in Bubbles
-
-- Distribution via flatpak
-- MS Windows support
-- More choices beyond Debian+Nix as guest system: e. g. Arch Linux
-
-Imaginable opt-in Features:
-
-- Option to share Nix store with other VMs/Bubbles
-- Option to mount host directories
-- Option to enable pulseaudio socket forwarding
-- Option to promote `.desktop` files to host
-
-### Limitations from upstream components
-
-- EGL/GPU hardware acceleration not trivial
-    - For AMD, addressable using virtio native contexts, WIP
-- For some Wayland applications, sommelier crashes
 
 ## Using the work in...
 
