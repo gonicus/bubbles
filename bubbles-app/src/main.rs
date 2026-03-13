@@ -29,7 +29,7 @@ fn determine_download_status() -> ImageStatus {
         .join(Path::new(".bubbles/images"));
     fs::create_dir_all(&images_dir).expect("directory to exist or be created");
 
-    let image_exists = images_dir.join(Path::new("debian-13")).exists();
+    let image_exists = images_dir.join(Path::new("debian-13/disk.img")).exists();
 
     return match image_exists {
         true => ImageStatus::Present,
