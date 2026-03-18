@@ -40,6 +40,25 @@ jobs:
         run: |
           git clone --depth=1 https://chromium.googlesource.com/chromiumos/platform2
           cd platform2/vm_tools/sommelier/
+          git apply - <<EOF
+          diff --git a/vm_tools/sommelier/compositor/sommelier-compositor.cc b/vm_tools/sommelier/compositor/sommelier-compositor.cc
+          index 23a35a7b90..4a7fe8048c 100644
+          --- a/vm_tools/sommelier/compositor/sommelier-compositor.cc
+          +++ b/vm_tools/sommelier/compositor/sommelier-compositor.cc
+          @@ -914,7 +914,11 @@ static void sl_destroy_host_surface(struct wl_resource* resource) {
+               sl_output_buffer_destroy(buffer);
+             }
+             while (!wl_list_empty(&host->contents_viewport)) {
+          -    wl_list_remove(host->contents_viewport.next);
+          +    struct wl_list* node = host->contents_viewport.next;
+          +    wl_list_remove(node);
+          +    // Re-initialize so sl_destroy_host_viewport's wl_list_remove is safe if
+          +    // the client destroys the wp_viewport after its associated wl_surface.
+          +    wl_list_init(node);
+             }
+           
+             if (host->viewport) {
+          EOF
           meson setup build -Dwith_tests=false
           meson compile -C build
           sudo meson install -C build
