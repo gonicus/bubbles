@@ -8,6 +8,141 @@ use relm4::{
 };
 use std::{env, fs, path::Path, ffi::OsStr};
 use libc::SIGTERM;
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct BubbleConfig {
+    cpus: u32,
+    ram_mb: u32,
+    sound_forwarding: bool,
+    tcp_ports: String,
+    map_host_loopback: String,
+    shared_dirs: String,
+}
+
+impl Default for BubbleConfig {
+    fn default() -> Self {
+        Self {
+            cpus: 4,
+            ram_mb: 7000,
+            sound_forwarding: false,
+            tcp_ports: String::new(),
+            map_host_loopback: String::new(),
+            shared_dirs: String::new(),
+        }
+    }
+}
+
+fn config_path(vm_name: &str) -> std::path::PathBuf {
+    env::current_dir()
+        .expect("cwd to be set")
+        .join(".bubbles/vms")
+        .join(vm_name)
+        .join("config.json")
+}
+
+fn load_config(vm_name: &str) -> BubbleConfig {
+    let path = config_path(vm_name);
+    match fs::read_to_string(&path) {
+        Ok(data) => serde_json::from_str(&data).unwrap_or_default(),
+        Err(_) => BubbleConfig::default(),
+    }
+}
+
+fn save_config(vm_name: &str, config: &BubbleConfig) {
+    let path = config_path(vm_name);
+    let data = serde_json::to_string_pretty(config).expect("config to serialize");
+    fs::write(path, data).expect("config to be written");
+}
+
+fn open_settings_dialog(vm_name: &str, parent: &relm4::adw::Window) {
+    let config = load_config(vm_name);
+
+    let dialog = relm4::adw::PreferencesDialog::new();
+    dialog.set_title(&format!("{} Settings", vm_name));
+
+    let page = relm4::adw::PreferencesPage::new();
+
+    // Resources
+    let resources_group = relm4::adw::PreferencesGroup::new();
+    resources_group.set_title("Resources");
+
+    let cpu_row = relm4::adw::SpinRow::with_range(1.0, 32.0, 1.0);
+    cpu_row.set_title("CPU Cores");
+    cpu_row.set_value(config.cpus as f64);
+    resources_group.add(&cpu_row);
+
+    let ram_row = relm4::adw::SpinRow::with_range(512.0, 32768.0, 512.0);
+    ram_row.set_title("RAM (MB)");
+    ram_row.set_value(config.ram_mb as f64);
+    resources_group.add(&ram_row);
+
+    page.add(&resources_group);
+
+    // Features
+    let features_group = relm4::adw::PreferencesGroup::new();
+    features_group.set_title("Features");
+
+    let sound_row = relm4::adw::SwitchRow::new();
+    sound_row.set_title("Sound Socket Forwarding");
+    sound_row.set_subtitle("Forward PulseAudio socket via VSOCK");
+    sound_row.set_active(config.sound_forwarding);
+    features_group.add(&sound_row);
+
+    page.add(&features_group);
+
+    // Network
+    let network_group = relm4::adw::PreferencesGroup::new();
+    network_group.set_title("Network");
+    network_group.set_description(Some("Applied on next startup"));
+
+    let ports_row = relm4::adw::EntryRow::new();
+    ports_row.set_title("TCP Port Forwards");
+    ports_row.set_text(&config.tcp_ports);
+    network_group.add(&ports_row);
+
+    let loopback_row = relm4::adw::EntryRow::new();
+    loopback_row.set_title("Map Host Loopback");
+    loopback_row.set_text(&config.map_host_loopback);
+    network_group.add(&loopback_row);
+
+    page.add(&network_group);
+
+    // Shared Directories
+    let storage_group = relm4::adw::PreferencesGroup::new();
+    storage_group.set_title("Shared Directories");
+    storage_group.set_description(Some("Comma-separated host paths (virtiofs)"));
+
+    let dirs_row = relm4::adw::EntryRow::new();
+    dirs_row.set_title("Host Directories");
+    dirs_row.set_text(&config.shared_dirs);
+    storage_group.add(&dirs_row);
+
+    page.add(&storage_group);
+
+    dialog.add(&page);
+
+    let vm_name_owned = vm_name.to_string();
+    let cpu_row_c = cpu_row.clone();
+    let ram_row_c = ram_row.clone();
+    let sound_row_c = sound_row.clone();
+    let ports_row_c = ports_row.clone();
+    let loopback_row_c = loopback_row.clone();
+    let dirs_row_c = dirs_row.clone();
+    dialog.connect_closed(move |_| {
+        let config = BubbleConfig {
+            cpus: cpu_row_c.value() as u32,
+            ram_mb: ram_row_c.value() as u32,
+            sound_forwarding: sound_row_c.is_active(),
+            tcp_ports: ports_row_c.text().to_string(),
+            map_host_loopback: loopback_row_c.text().to_string(),
+            shared_dirs: dirs_row_c.text().to_string(),
+        };
+        save_config(&vm_name_owned, &config);
+    });
+
+    dialog.present(Some(parent));
+}
 
 struct CreateBubbleDialog {
 }
@@ -235,7 +370,7 @@ async fn create_vm(name: String) {
     let vm_dir_path = &env::current_dir()
         .expect("to be set")
         .join(".bubbles/vms")
-        .join(name);
+        .join(&name);
     tokio::fs::create_dir_all(vm_dir_path).await.expect("directories to be created");
     let image_base_path = env::current_dir()
         .expect("to be set")
@@ -246,6 +381,7 @@ async fn create_vm(name: String) {
     tokio::fs::copy(image_disk_path, vm_dir_path.join("disk.img")).await.expect("disk copy to succeed");
     tokio::fs::copy(image_linuz_path, vm_dir_path.join("vmlinuz")).await.expect("vmlinuz copy to succeed");
     tokio::fs::copy(image_initrd_path, vm_dir_path.join("initrd.img")).await.expect("initrd copy to succeed");
+    save_config(&name, &BubbleConfig::default());
     println!("done copy");
 }
 
@@ -253,11 +389,13 @@ async fn create_vm(name: String) {
 enum VmMsg {
     PowerToggle(DynamicIndex),
     StartTerminal(DynamicIndex),
+    OpenSettings(DynamicIndex),
 }
 
 #[derive(Debug)]
 enum VmStateUpdate {
-    Update(DynamicIndex, VMStatus)
+    Update(DynamicIndex, VMStatus),
+    OpenSettings(String),
 }
 
 #[derive(PartialEq, Debug)]
@@ -292,6 +430,13 @@ impl AsyncFactoryComponent for VmEntry {
                     }
                 },
                 append = &gtk::Button {
+                    set_icon_name: "emblem-system-symbolic",
+                    set_tooltip_text: Some("Settings"),
+                    connect_clicked[sender, index] => move |_| {
+                        sender.input(VmMsg::OpenSettings(index.clone()));
+                    }
+                },
+                append = &gtk::Button {
                     set_icon_name: "system-shutdown-symbolic",
                     connect_clicked[sender, index] => move |_| {
                         sender.input(VmMsg::PowerToggle(index.clone()));
@@ -315,7 +460,7 @@ impl AsyncFactoryComponent for VmEntry {
         _sender: AsyncFactorySender<Self>,
     ) -> Self {
         Self { value }
-    }   
+    }
     async fn update(&mut self, msg: Self::Input, sender: AsyncFactorySender<Self>) {
         let vm_name: String = self.value.name.clone();
         let image_base_path = env::current_dir()
@@ -323,6 +468,9 @@ impl AsyncFactoryComponent for VmEntry {
             .join(".bubbles/vms").join(vm_name.clone());
         let vsock_socket_path = image_base_path.join("vsock");
         match msg {
+            VmMsg::OpenSettings(_index) => {
+                sender.output(VmStateUpdate::OpenSettings(vm_name)).unwrap();
+            },
             VmMsg::PowerToggle(index) => {
                 match self.value.status {
                     VMStatus::Running | VMStatus::InFlux => {
@@ -333,6 +481,7 @@ impl AsyncFactoryComponent for VmEntry {
                     VMStatus::NotRunning => {
                         sender.output(VmStateUpdate::Update(index.clone(), VMStatus::InFlux)).unwrap();
                         relm4::spawn_local(async move {
+                            let config = load_config(&vm_name);
                             let crosvm_socket_path = image_base_path.join("crosvm_socket");
                             let passt_socket_path = Path::new("/tmp").join(format!("passt_socket_{}", vm_name.clone()));
                             let image_disk_path = image_base_path.join("disk.img");
@@ -348,45 +497,99 @@ impl AsyncFactoryComponent for VmEntry {
                                 ],
                                 SubprocessFlags::empty()
                             ).expect("start of socat process");
+
+                            // Sound socket forwarding
+                            let sound_socat_process = if config.sound_forwarding {
+                                let xdg_runtime = env::var("XDG_RUNTIME_DIR").expect("XDG_RUNTIME_DIR to be set");
+                                let pulse_path = format!("{}/pulse/native", xdg_runtime);
+                                Some(gtk::gio::Subprocess::newv(
+                                    &[
+                                        OsStr::new(Path::new(&env::var("HOME").expect("HOME var to be set")).join("bubbles/socat").as_os_str()),
+                                        OsStr::new("VSOCK-LISTEN:11112,fork"),
+                                        OsStr::new(&format!("UNIX-CONNECT:{}", pulse_path)),
+                                    ],
+                                    SubprocessFlags::empty()
+                                ).expect("start of sound socat process"))
+                            } else {
+                                None
+                            };
+
+                            // Build passt args
+                            let mut passt_args: Vec<String> = vec![
+                                "passt".into(),
+                                "-f".into(),
+                                "--vhost-user".into(),
+                                "--socket".into(),
+                                passt_socket_path.to_str().expect("string").into(),
+                            ];
+                            if !config.tcp_ports.trim().is_empty() {
+                                passt_args.push("--tcp-ports".into());
+                                passt_args.push(config.tcp_ports.trim().into());
+                            }
+                            if !config.map_host_loopback.trim().is_empty() {
+                                passt_args.push("--map-host-loopback".into());
+                                passt_args.push(config.map_host_loopback.trim().into());
+                            }
+                            let passt_args_os: Vec<&OsStr> = passt_args.iter().map(|s| OsStr::new(s.as_str())).collect();
                             let passt_process = gtk::gio::Subprocess::newv(
-                                &[
-                                    OsStr::new("passt"),
-                                    OsStr::new("-f"),
-                                    OsStr::new("--vhost-user"),
-                                    OsStr::new("--socket"),
-                                    OsStr::new(passt_socket_path.as_os_str()),
-                                ],
+                                &passt_args_os,
                                 SubprocessFlags::empty()
                             ).expect("start of passt process");
                             wait_until_exists(passt_socket_path.as_os_str()).await;
+
+                            // Build crosvm args
+                            let cpus_str = format!("num-cores={}", config.cpus);
+                            let ram_str = format!("{}", config.ram_mb);
+                            let vsock_str = format!("{}", index.current_index() + 10);
+                            let wayland_path = Path::new(&env::var("XDG_RUNTIME_DIR").expect("XDG var to be set"))
+                                .join(env::var("WAYLAND_DISPLAY").expect("WAYLAND_DISPLAY var to be set"));
+                            let vhost_net_str = format!("net,socket={}", passt_socket_path.to_str().expect("string"));
+                            let crosvm_bin = Path::new(&env::var("HOME").expect("HOME var to be set")).join("bubbles/crosvm");
+
+                            let mut crosvm_args: Vec<Box<dyn AsRef<OsStr>>> = vec![
+                                Box::new(crosvm_bin.clone()),
+                                Box::new("run".to_string()),
+                                Box::new("--name".to_string()),
+                                Box::new(vm_name.clone()),
+                                Box::new("--cpus".to_string()),
+                                Box::new(cpus_str),
+                                Box::new("-m".to_string()),
+                                Box::new(ram_str),
+                                Box::new("--rwdisk".to_string()),
+                                Box::new(image_disk_path.clone()),
+                                Box::new("--initrd".to_string()),
+                                Box::new(image_initrd_path.clone()),
+                                Box::new("--socket".to_string()),
+                                Box::new(crosvm_socket_path.clone()),
+                                Box::new("--vsock".to_string()),
+                                Box::new(vsock_str),
+                                Box::new("--gpu".to_string()),
+                                Box::new("context-types=cross-domain,displays=[]".to_string()),
+                                Box::new("--wayland-sock".to_string()),
+                                Box::new(wayland_path),
+                                Box::new("--vhost-user".to_string()),
+                                Box::new(vhost_net_str),
+                                Box::new("-p".to_string()),
+                                Box::new("root=/dev/vda2".to_string()),
+                            ];
+
+                            // Add shared directories
+                            let shared_dirs: Vec<&str> = config.shared_dirs.split(',')
+                                .map(|s| s.trim())
+                                .filter(|s| !s.is_empty())
+                                .collect();
+                            for (i, dir) in shared_dirs.iter().enumerate() {
+                                let tag = format!("shared{}", i);
+                                let shared_arg = format!("{}:{}:type=fs", dir, tag);
+                                crosvm_args.push(Box::new("--shared-dir".to_string()));
+                                crosvm_args.push(Box::new(shared_arg));
+                            }
+
+                            crosvm_args.push(Box::new(image_linuz_path.clone()));
+
+                            let crosvm_args_os: Vec<&OsStr> = crosvm_args.iter().map(|s| (*s).as_ref().as_ref()).collect();
                             let crosvm_process = gtk::gio::Subprocess::newv(
-                                &[
-                                    OsStr::new(Path::new(&env::var("HOME").expect("HOME var to be set")).join("bubbles/crosvm").as_os_str()),
-                                    OsStr::new("run"),
-                                    OsStr::new("--name"),
-                                    OsStr::new(&vm_name.clone()),
-                                    OsStr::new("--cpus"),
-                                    OsStr::new("num-cores=4"),
-                                    OsStr::new("-m"),
-                                    OsStr::new("7000"),
-                                    OsStr::new("--rwdisk"),
-                                    image_disk_path.as_os_str(),
-                                    OsStr::new("--initrd"),
-                                    image_initrd_path.as_os_str(),
-                                    OsStr::new("--socket"),
-                                    crosvm_socket_path.as_os_str(),
-                                    OsStr::new("--vsock"),
-                                    OsStr::new(&format!("{}", index.current_index() + 10)),
-                                    OsStr::new("--gpu"),
-                                    OsStr::new("context-types=cross-domain,displays=[]"),
-                                    OsStr::new("--wayland-sock"),
-                                    OsStr::new(Path::new(&env::var("XDG_RUNTIME_DIR").expect("XDG var to be set")).join(env::var("WAYLAND_DISPLAY").expect("WAYLAND_DISPLAY var to be set")).as_os_str()),
-                                    OsStr::new("--vhost-user"),
-                                    OsStr::new(&format!("net,socket={}", passt_socket_path.to_str().expect("string"))),
-                                    OsStr::new("-p"),
-                                    OsStr::new("root=/dev/vda2"),
-                                    image_linuz_path.as_os_str(),
-                                ],
+                                &crosvm_args_os,
                                 SubprocessFlags::empty()
                             ).expect("start of process");
                             wait_until_ready(vsock_socket_path.as_os_str()).await;
@@ -394,8 +597,14 @@ impl AsyncFactoryComponent for VmEntry {
                             crosvm_process.wait_future().await.expect("vm to stop");
                             socat_process.send_signal(SIGTERM); // Marker: Incompatible with Windows
                             passt_process.send_signal(SIGTERM);
+                            if let Some(ref sound_proc) = sound_socat_process {
+                                sound_proc.send_signal(SIGTERM);
+                            }
                             socat_process.wait_future().await.expect("socat to stop");
                             passt_process.wait_future().await.expect("passt to stop");
+                            if let Some(sound_proc) = sound_socat_process {
+                                sound_proc.wait_future().await.expect("sound socat to stop");
+                            }
                             sender.output(VmStateUpdate::Update(index, VMStatus::NotRunning)).unwrap();
                         });
                     },
@@ -420,6 +629,7 @@ enum AppMsg {
     HandleVMStatusUpdate(DynamicIndex, VMStatus),
     FinishBubbleCreation,
     CloseApplication,
+    OpenBubbleSettings(String),
 }
 
 #[relm4::component]
@@ -532,7 +742,8 @@ impl SimpleComponent for App {
             AsyncFactoryVecDeque::builder()
                 .launch_default()
                 .forward(sender.input_sender(), |output| match output {
-                    VmStateUpdate::Update(index, status_update  ) => AppMsg::HandleVMStatusUpdate(index, status_update),
+                    VmStateUpdate::Update(index, status_update) => AppMsg::HandleVMStatusUpdate(index, status_update),
+                    VmStateUpdate::OpenSettings(name) => AppMsg::OpenBubbleSettings(name),
                 });
         let create_bubble_dialog = CreateBubbleDialog::builder()
             .launch(())
@@ -607,6 +818,9 @@ impl SimpleComponent for App {
             }
             AppMsg::HandleVMStatusUpdate(index, status_update) => {
                 self.vms.guard().get_mut(index.current_index()).unwrap().value.status = status_update;
+            }
+            AppMsg::OpenBubbleSettings(name) => {
+                open_settings_dialog(&name, &self.root);
             }
             AppMsg::CloseApplication => {
                 let mut vm_running = false;
