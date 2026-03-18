@@ -578,11 +578,16 @@ impl SimpleComponent for App {
                 });
             }
             AppMsg::FinishBubbleCreation=>{
-                let new_vms = load_vms();
                 self.currently_creating_bubble = false;
-                self.vms.guard().clear();
-                for vm in new_vms {
-                    self.vms.guard().push_back(vm);
+                let mut guard = self.vms.guard();
+                let existing_names: Vec<String> = guard
+                    .iter()
+                    .filter_map(|entry| entry.map(|e| e.value.name.clone()))
+                    .collect();
+                for vm in load_vms() {
+                    if !existing_names.contains(&vm.name) {
+                        guard.push_back(vm);
+                    }
                 }
             }
             AppMsg::DownloadImage => {
