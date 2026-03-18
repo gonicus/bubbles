@@ -55,93 +55,137 @@ fn save_config(vm_name: &str, config: &BubbleConfig) {
     fs::write(path, data).expect("config to be written");
 }
 
-fn open_settings_dialog(vm_name: &str, parent: &relm4::adw::Window) {
-    let config = load_config(vm_name);
+struct BubbleSettingsDialog {
+    root_dialog: relm4::adw::PreferencesDialog,
+    vm_name: String,
+    cpu_row: relm4::adw::SpinRow,
+    ram_row: relm4::adw::SpinRow,
+    sound_row: relm4::adw::SwitchRow,
+    ports_row: relm4::adw::EntryRow,
+    loopback_row: relm4::adw::EntryRow,
+    dirs_row: relm4::adw::EntryRow,
+}
 
-    let dialog = relm4::adw::PreferencesDialog::new();
-    dialog.set_title(&format!("{} Settings", vm_name));
+#[derive(Debug)]
+enum BubbleSettingsMsg {
+    Load(String),
+    Save,
+}
 
-    let page = relm4::adw::PreferencesPage::new();
+#[relm4::component]
+impl SimpleComponent for BubbleSettingsDialog {
+    type Init = ();
+    type Input = BubbleSettingsMsg;
+    type Output = ();
 
-    // Resources
-    let resources_group = relm4::adw::PreferencesGroup::new();
-    resources_group.set_title("Resources");
+    view! {
+        dialog = relm4::adw::PreferencesDialog {
+            set_title: "Bubble Settings",
+            connect_closed => BubbleSettingsMsg::Save,
+            add = &relm4::adw::PreferencesPage {
+                add = &relm4::adw::PreferencesGroup {
+                    set_title: "Resources",
+                    #[local_ref]
+                    add = cpu_row -> relm4::adw::SpinRow {
+                        set_title: "CPU Cores",
+                    },
+                    #[local_ref]
+                    add = ram_row -> relm4::adw::SpinRow {
+                        set_title: "RAM (MB)",
+                    },
+                },
+                add = &relm4::adw::PreferencesGroup {
+                    set_title: "Features",
+                    #[local_ref]
+                    add = sound_row -> relm4::adw::SwitchRow {
+                        set_title: "Sound Socket Forwarding",
+                        set_subtitle: "Forward PulseAudio socket via VSOCK",
+                    },
+                },
+                add = &relm4::adw::PreferencesGroup {
+                    set_title: "Network",
+                    set_description: Some("Applied on next startup"),
+                    #[local_ref]
+                    add = ports_row -> relm4::adw::EntryRow {
+                        set_title: "TCP Port Forwards",
+                    },
+                    #[local_ref]
+                    add = loopback_row -> relm4::adw::EntryRow {
+                        set_title: "Map Host Loopback",
+                    },
+                },
+                add = &relm4::adw::PreferencesGroup {
+                    set_title: "Shared Directories",
+                    set_description: Some("Comma-separated host paths (virtiofs)"),
+                    #[local_ref]
+                    add = dirs_row -> relm4::adw::EntryRow {
+                        set_title: "Host Directories",
+                    },
+                },
+            },
+        }
+    }
 
-    let cpu_row = relm4::adw::SpinRow::with_range(1.0, 32.0, 1.0);
-    cpu_row.set_title("CPU Cores");
-    cpu_row.set_value(config.cpus as f64);
-    resources_group.add(&cpu_row);
+    fn init(
+        _init: Self::Init,
+        root: Self::Root,
+        _sender: ComponentSender<Self>,
+    ) -> ComponentParts<Self> {
+        let cpu_row = relm4::adw::SpinRow::with_range(1.0, 32.0, 1.0);
+        let ram_row = relm4::adw::SpinRow::with_range(512.0, 32768.0, 512.0);
+        let sound_row = relm4::adw::SwitchRow::new();
+        let ports_row = relm4::adw::EntryRow::new();
+        let loopback_row = relm4::adw::EntryRow::new();
+        let dirs_row = relm4::adw::EntryRow::new();
 
-    let ram_row = relm4::adw::SpinRow::with_range(512.0, 32768.0, 512.0);
-    ram_row.set_title("RAM (MB)");
-    ram_row.set_value(config.ram_mb as f64);
-    resources_group.add(&ram_row);
-
-    page.add(&resources_group);
-
-    // Features
-    let features_group = relm4::adw::PreferencesGroup::new();
-    features_group.set_title("Features");
-
-    let sound_row = relm4::adw::SwitchRow::new();
-    sound_row.set_title("Sound Socket Forwarding");
-    sound_row.set_subtitle("Forward PulseAudio socket via VSOCK");
-    sound_row.set_active(config.sound_forwarding);
-    features_group.add(&sound_row);
-
-    page.add(&features_group);
-
-    // Network
-    let network_group = relm4::adw::PreferencesGroup::new();
-    network_group.set_title("Network");
-    network_group.set_description(Some("Applied on next startup"));
-
-    let ports_row = relm4::adw::EntryRow::new();
-    ports_row.set_title("TCP Port Forwards");
-    ports_row.set_text(&config.tcp_ports);
-    network_group.add(&ports_row);
-
-    let loopback_row = relm4::adw::EntryRow::new();
-    loopback_row.set_title("Map Host Loopback");
-    loopback_row.set_text(&config.map_host_loopback);
-    network_group.add(&loopback_row);
-
-    page.add(&network_group);
-
-    // Shared Directories
-    let storage_group = relm4::adw::PreferencesGroup::new();
-    storage_group.set_title("Shared Directories");
-    storage_group.set_description(Some("Comma-separated host paths (virtiofs)"));
-
-    let dirs_row = relm4::adw::EntryRow::new();
-    dirs_row.set_title("Host Directories");
-    dirs_row.set_text(&config.shared_dirs);
-    storage_group.add(&dirs_row);
-
-    page.add(&storage_group);
-
-    dialog.add(&page);
-
-    let vm_name_owned = vm_name.to_string();
-    let cpu_row_c = cpu_row.clone();
-    let ram_row_c = ram_row.clone();
-    let sound_row_c = sound_row.clone();
-    let ports_row_c = ports_row.clone();
-    let loopback_row_c = loopback_row.clone();
-    let dirs_row_c = dirs_row.clone();
-    dialog.connect_closed(move |_| {
-        let config = BubbleConfig {
-            cpus: cpu_row_c.value() as u32,
-            ram_mb: ram_row_c.value() as u32,
-            sound_forwarding: sound_row_c.is_active(),
-            tcp_ports: ports_row_c.text().to_string(),
-            map_host_loopback: loopback_row_c.text().to_string(),
-            shared_dirs: dirs_row_c.text().to_string(),
+        let model = BubbleSettingsDialog {
+            root_dialog: root.clone(),
+            vm_name: String::new(),
+            cpu_row: cpu_row.clone(),
+            ram_row: ram_row.clone(),
+            sound_row: sound_row.clone(),
+            ports_row: ports_row.clone(),
+            loopback_row: loopback_row.clone(),
+            dirs_row: dirs_row.clone(),
         };
-        save_config(&vm_name_owned, &config);
-    });
 
-    dialog.present(Some(parent));
+        let cpu_row = &cpu_row;
+        let ram_row = &ram_row;
+        let sound_row = &sound_row;
+        let ports_row = &ports_row;
+        let loopback_row = &loopback_row;
+        let dirs_row = &dirs_row;
+
+        let widgets = view_output!();
+        ComponentParts { model, widgets }
+    }
+
+    fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
+        match msg {
+            BubbleSettingsMsg::Load(name) => {
+                self.vm_name = name;
+                let config = load_config(&self.vm_name);
+                self.cpu_row.set_value(config.cpus as f64);
+                self.ram_row.set_value(config.ram_mb as f64);
+                self.sound_row.set_active(config.sound_forwarding);
+                self.ports_row.set_text(&config.tcp_ports);
+                self.loopback_row.set_text(&config.map_host_loopback);
+                self.dirs_row.set_text(&config.shared_dirs);
+            }
+            BubbleSettingsMsg::Save => {
+                if self.vm_name.is_empty() { return; }
+                let config = BubbleConfig {
+                    cpus: self.cpu_row.value() as u32,
+                    ram_mb: self.ram_row.value() as u32,
+                    sound_forwarding: self.sound_row.is_active(),
+                    tcp_ports: self.ports_row.text().to_string(),
+                    map_host_loopback: self.loopback_row.text().to_string(),
+                    shared_dirs: self.dirs_row.text().to_string(),
+                };
+                save_config(&self.vm_name, &config);
+            }
+        }
+    }
 }
 
 struct CreateBubbleDialog {
@@ -327,6 +371,7 @@ struct App {
     vms: AsyncFactoryVecDeque<VmEntry>,
     create_bubble_dialog: Controller<CreateBubbleDialog>,
     warn_close_dialog: Controller<WarnCloseDialog>,
+    settings_dialog: Controller<BubbleSettingsDialog>,
     currently_creating_bubble: bool,
     image_status: ImageStatus,
     root: relm4::adw::Window,
@@ -755,11 +800,15 @@ impl SimpleComponent for App {
             .forward(sender.input_sender(), |msg| match msg {
                 msg => msg
             });
+        let settings_dialog = BubbleSettingsDialog::builder()
+            .launch(())
+            .detach();
 
         let mut model = App {
             vms,
             create_bubble_dialog,
             warn_close_dialog,
+            settings_dialog,
             root: root.clone(),
             currently_creating_bubble: false,
             image_status: determine_download_status(),
@@ -820,7 +869,8 @@ impl SimpleComponent for App {
                 self.vms.guard().get_mut(index.current_index()).unwrap().value.status = status_update;
             }
             AppMsg::OpenBubbleSettings(name) => {
-                open_settings_dialog(&name, &self.root);
+                self.settings_dialog.sender().send(BubbleSettingsMsg::Load(name)).unwrap();
+                self.settings_dialog.widgets().dialog.present(Some(&self.root));
             }
             AppMsg::CloseApplication => {
                 let mut vm_running = false;
