@@ -35,7 +35,7 @@ Loose Recommendation:
 mkdir $HOME/bubbles
 # May be different for non-SELinux systems: skip ":Z"
 # May be different for docker: You may need to chown files afterwards
-podman run -v "$HOME/bubbles:/output:Z" ghcr.io/gonicus/bubbles/bubbles:e8c85a34a73cc6b0cf8f02ccd7aac1a4f33f3009
+podman run -v "$HOME/bubbles:/output:Z" ghcr.io/gonicus/bubbles/bubbles:8b50a16a02305823d98b401e463c41d6c472763b
 # For .desktop file:
 cat > ~/.local/share/applications/bubbles.desktop <<EOF
 [Desktop Entry]
