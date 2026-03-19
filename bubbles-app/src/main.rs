@@ -338,6 +338,8 @@ impl AsyncFactoryComponent for VmEntry {
                             let image_disk_path = image_base_path.join("disk.img");
                             let image_linuz_path = image_base_path.join("vmlinuz");
                             let image_initrd_path = image_base_path.join("initrd.img");
+                            let _ = tokio::fs::remove_file(&crosvm_socket_path).await;
+                            let _ = tokio::fs::remove_file(&vsock_socket_path).await;
                             let socat_process = gtk::gio::Subprocess::newv(
                                 &[
                                     OsStr::new(Path::new(&env::var("HOME").expect("HOME var to be set")).join("bubbles/socat").as_os_str()),
