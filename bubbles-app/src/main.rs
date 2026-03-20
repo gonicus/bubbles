@@ -1,10 +1,11 @@
 use relm4::adw::prelude::*;
 use gtk::gio::SubprocessFlags;
-use gtk::prelude::{BoxExt, ButtonExt, GtkWindowExt};
-use relm4::factory::DynamicIndex;
-use relm4::prelude::{AsyncFactoryComponent, AsyncFactoryVecDeque};
+use gtk::prelude::{BoxExt, ButtonExt, EditableExt, GtkWindowExt};
+use relm4::factory::{DynamicIndex, FactoryVecDeque};
+use relm4::prelude::{AsyncFactoryComponent, AsyncFactoryVecDeque, FactoryComponent};
 use relm4::{
-    AsyncFactorySender, Component, ComponentController, ComponentParts, ComponentSender, Controller, RelmApp, SimpleComponent, spawn
+    AsyncFactorySender, Component, ComponentController, ComponentParts, ComponentSender,
+    Controller, FactorySender, RelmApp, SimpleComponent, spawn
 };
 use std::{env, fs, path::Path, ffi::OsStr};
 use libc::SIGTERM;
@@ -15,9 +16,9 @@ struct BubbleConfig {
     cpus: u32,
     ram_mb: u32,
     sound_forwarding: bool,
-    tcp_ports: String,
-    map_host_loopback: String,
-    shared_dirs: String,
+    tcp_ports: Vec<String>,
+    map_host_loopback: bool,
+    shared_dirs: Vec<String>,
 }
 
 impl Default for BubbleConfig {
@@ -26,11 +27,28 @@ impl Default for BubbleConfig {
             cpus: 4,
             ram_mb: 7000,
             sound_forwarding: false,
-            tcp_ports: String::new(),
-            map_host_loopback: String::new(),
-            shared_dirs: String::new(),
+            tcp_ports: vec![],
+            map_host_loopback: false,
+            shared_dirs: vec![],
         }
     }
+}
+
+fn host_cpu_count() -> u32 {
+    (unsafe { libc::sysconf(libc::_SC_NPROCESSORS_ONLN) } as u32).max(1)
+}
+
+fn host_ram_mb() -> u32 {
+    let content = fs::read_to_string("/proc/meminfo").unwrap_or_default();
+    for line in content.lines() {
+        if let Some(rest) = line.strip_prefix("MemTotal:") {
+            let kb: u64 = rest.trim().split_whitespace().next()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(32768 * 1024);
+            return (kb / 1024) as u32;
+        }
+    }
+    32768
 }
 
 fn config_path(vm_name: &str) -> std::path::PathBuf {
@@ -55,23 +73,128 @@ fn save_config(vm_name: &str, config: &BubbleConfig) {
     fs::write(path, data).expect("config to be written");
 }
 
+// --- Port Entry Factory Component ---
+
+#[derive(Debug)]
+struct PortEntry {
+    text: String,
+}
+
+#[derive(Debug)]
+enum PortEntryMsg {
+    TextChanged(String),
+}
+
+#[derive(Debug)]
+enum PortEntryOutput {
+    Remove(DynamicIndex),
+}
+
+#[relm4::factory]
+impl FactoryComponent for PortEntry {
+    type Init = String;
+    type Input = PortEntryMsg;
+    type Output = PortEntryOutput;
+    type CommandOutput = ();
+    type ParentWidget = gtk::ListBox;
+
+    view! {
+        #[root]
+        relm4::adw::EntryRow {
+            set_title: "Port",
+            set_text: &self.text,
+            add_suffix = &gtk::Button {
+                set_icon_name: "user-trash-symbolic",
+                set_valign: gtk::Align::Center,
+                connect_clicked[sender, index] => move |_| {
+                    sender.output(PortEntryOutput::Remove(index.clone())).unwrap();
+                }
+            },
+            connect_changed[sender] => move |entry| {
+                sender.input(PortEntryMsg::TextChanged(entry.text().to_string()));
+            },
+        }
+    }
+
+    fn init_model(text: Self::Init, _index: &DynamicIndex, _sender: FactorySender<Self>) -> Self {
+        Self { text }
+    }
+
+    fn update(&mut self, msg: Self::Input, _sender: FactorySender<Self>) {
+        match msg {
+            PortEntryMsg::TextChanged(text) => self.text = text,
+        }
+    }
+}
+
+// --- Directory Entry Factory Component ---
+
+#[derive(Debug)]
+struct DirEntry {
+    path: String,
+}
+
+#[derive(Debug)]
+enum DirEntryOutput {
+    Remove(DynamicIndex),
+}
+
+#[relm4::factory]
+impl FactoryComponent for DirEntry {
+    type Init = String;
+    type Input = ();
+    type Output = DirEntryOutput;
+    type CommandOutput = ();
+    type ParentWidget = gtk::ListBox;
+
+    view! {
+        #[root]
+        relm4::adw::ActionRow {
+            set_title: &self.path,
+            add_prefix = &gtk::Image {
+                set_icon_name: Some("folder-symbolic"),
+            },
+            add_suffix = &gtk::Button {
+                set_icon_name: "user-trash-symbolic",
+                set_valign: gtk::Align::Center,
+                connect_clicked[sender, index] => move |_| {
+                    sender.output(DirEntryOutput::Remove(index.clone())).unwrap();
+                }
+            },
+        }
+    }
+
+    fn init_model(path: Self::Init, _index: &DynamicIndex, _sender: FactorySender<Self>) -> Self {
+        Self { path }
+    }
+
+    fn update(&mut self, _msg: Self::Input, _sender: FactorySender<Self>) {}
+}
+
+// --- Bubble Settings Dialog ---
+
 struct BubbleSettingsDialog {
-    root_dialog: relm4::adw::PreferencesDialog,
     vm_name: String,
     cpu_row: relm4::adw::SpinRow,
     ram_row: relm4::adw::SpinRow,
     sound_row: relm4::adw::SwitchRow,
-    ports_row: relm4::adw::EntryRow,
-    loopback_row: relm4::adw::EntryRow,
-    dirs_row: relm4::adw::EntryRow,
+    loopback_row: relm4::adw::SwitchRow,
+    ports: FactoryVecDeque<PortEntry>,
+    dirs: FactoryVecDeque<DirEntry>,
 }
 
 #[derive(Debug)]
 enum BubbleSettingsMsg {
     Load(String),
     Save,
+    AddPort,
+    RemovePort(DynamicIndex),
+    AddSharedDir,
+    AddSharedDirPath(String),
+    RemoveSharedDir(DynamicIndex),
 }
 
+#[allow(unused)]
 #[relm4::component]
 impl SimpleComponent for BubbleSettingsDialog {
     type Init = ();
@@ -104,23 +227,35 @@ impl SimpleComponent for BubbleSettingsDialog {
                 },
                 add = &relm4::adw::PreferencesGroup {
                     set_title: "Network",
-                    set_description: Some("Applied on next startup"),
                     #[local_ref]
-                    add = ports_row -> relm4::adw::EntryRow {
-                        set_title: "TCP Port Forwards",
-                    },
-                    #[local_ref]
-                    add = loopback_row -> relm4::adw::EntryRow {
+                    add = loopback_row -> relm4::adw::SwitchRow {
                         set_title: "Map Host Loopback",
+                        set_subtitle: "Make host services reachable at 169.254.0.1",
                     },
                 },
                 add = &relm4::adw::PreferencesGroup {
-                    set_title: "Shared Directories",
-                    set_description: Some("Comma-separated host paths (virtiofs)"),
-                    #[local_ref]
-                    add = dirs_row -> relm4::adw::EntryRow {
-                        set_title: "Host Directories",
+                    set_title: "TCP Port Forwards",
+                    set_description: Some("Applied on next startup"),
+                    #[wrap(Some)]
+                    set_header_suffix = &gtk::Button {
+                        set_icon_name: "list-add-symbolic",
+                        set_valign: gtk::Align::Center,
+                        connect_clicked => BubbleSettingsMsg::AddPort,
                     },
+                    #[local_ref]
+                    add = ports_listbox -> gtk::ListBox {},
+                },
+                add = &relm4::adw::PreferencesGroup {
+                    set_title: "Shared Directories",
+                    set_description: Some("Mounted via virtiofs, applied on next startup"),
+                    #[wrap(Some)]
+                    set_header_suffix = &gtk::Button {
+                        set_icon_name: "list-add-symbolic",
+                        set_valign: gtk::Align::Center,
+                        connect_clicked => BubbleSettingsMsg::AddSharedDir,
+                    },
+                    #[local_ref]
+                    add = dirs_listbox -> gtk::ListBox {},
                 },
             },
         }
@@ -129,38 +264,50 @@ impl SimpleComponent for BubbleSettingsDialog {
     fn init(
         _init: Self::Init,
         root: Self::Root,
-        _sender: ComponentSender<Self>,
+        sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let cpu_row = relm4::adw::SpinRow::with_range(1.0, 32.0, 1.0);
-        let ram_row = relm4::adw::SpinRow::with_range(512.0, 32768.0, 512.0);
+        let cpu_row = relm4::adw::SpinRow::with_range(1.0, host_cpu_count() as f64, 1.0);
+        let ram_row = relm4::adw::SpinRow::with_range(512.0, host_ram_mb() as f64, 512.0);
         let sound_row = relm4::adw::SwitchRow::new();
-        let ports_row = relm4::adw::EntryRow::new();
-        let loopback_row = relm4::adw::EntryRow::new();
-        let dirs_row = relm4::adw::EntryRow::new();
+        let loopback_row = relm4::adw::SwitchRow::new();
+
+        let ports: FactoryVecDeque<PortEntry> = FactoryVecDeque::builder()
+            .launch_default()
+            .forward(sender.input_sender(), |output| match output {
+                PortEntryOutput::Remove(index) => BubbleSettingsMsg::RemovePort(index),
+            });
+
+        let dirs: FactoryVecDeque<DirEntry> = FactoryVecDeque::builder()
+            .launch_default()
+            .forward(sender.input_sender(), |output| match output {
+                DirEntryOutput::Remove(index) => BubbleSettingsMsg::RemoveSharedDir(index),
+            });
+
+        let ports_listbox_widget = ports.widget().clone();
+        let dirs_listbox_widget = dirs.widget().clone();
 
         let model = BubbleSettingsDialog {
-            root_dialog: root.clone(),
             vm_name: String::new(),
             cpu_row: cpu_row.clone(),
             ram_row: ram_row.clone(),
             sound_row: sound_row.clone(),
-            ports_row: ports_row.clone(),
             loopback_row: loopback_row.clone(),
-            dirs_row: dirs_row.clone(),
+            ports,
+            dirs,
         };
 
         let cpu_row = &cpu_row;
         let ram_row = &ram_row;
         let sound_row = &sound_row;
-        let ports_row = &ports_row;
         let loopback_row = &loopback_row;
-        let dirs_row = &dirs_row;
+        let ports_listbox = &ports_listbox_widget;
+        let dirs_listbox = &dirs_listbox_widget;
 
         let widgets = view_output!();
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
+    fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>) {
         match msg {
             BubbleSettingsMsg::Load(name) => {
                 self.vm_name = name;
@@ -168,21 +315,72 @@ impl SimpleComponent for BubbleSettingsDialog {
                 self.cpu_row.set_value(config.cpus as f64);
                 self.ram_row.set_value(config.ram_mb as f64);
                 self.sound_row.set_active(config.sound_forwarding);
-                self.ports_row.set_text(&config.tcp_ports);
-                self.loopback_row.set_text(&config.map_host_loopback);
-                self.dirs_row.set_text(&config.shared_dirs);
+                self.loopback_row.set_active(config.map_host_loopback);
+
+                // Rebuild port entries via factory
+                let mut ports_guard = self.ports.guard();
+                ports_guard.clear();
+                for port in &config.tcp_ports {
+                    ports_guard.push_back(port.clone());
+                }
+                drop(ports_guard);
+
+                // Rebuild dir entries via factory
+                let mut dirs_guard = self.dirs.guard();
+                dirs_guard.clear();
+                for dir in &config.shared_dirs {
+                    dirs_guard.push_back(dir.clone());
+                }
             }
             BubbleSettingsMsg::Save => {
                 if self.vm_name.is_empty() { return; }
+                let tcp_ports: Vec<String> = self.ports.iter()
+                    .map(|entry| entry.text.clone())
+                    .filter(|s| !s.trim().is_empty())
+                    .collect();
+                let shared_dirs: Vec<String> = self.dirs.iter()
+                    .map(|entry| entry.path.clone())
+                    .filter(|s| !s.trim().is_empty())
+                    .collect();
                 let config = BubbleConfig {
                     cpus: self.cpu_row.value() as u32,
                     ram_mb: self.ram_row.value() as u32,
                     sound_forwarding: self.sound_row.is_active(),
-                    tcp_ports: self.ports_row.text().to_string(),
-                    map_host_loopback: self.loopback_row.text().to_string(),
-                    shared_dirs: self.dirs_row.text().to_string(),
+                    tcp_ports,
+                    map_host_loopback: self.loopback_row.is_active(),
+                    shared_dirs,
                 };
                 save_config(&self.vm_name, &config);
+            }
+            BubbleSettingsMsg::AddPort => {
+                self.ports.guard().push_back(String::new());
+            }
+            BubbleSettingsMsg::RemovePort(index) => {
+                self.ports.guard().remove(index.current_index());
+            }
+            BubbleSettingsMsg::AddSharedDir => {
+                let dialog = gtk::FileDialog::new();
+                dialog.set_title("Select Directory");
+                let input_sender = sender.input_sender().clone();
+                dialog.select_folder(
+                    None::<&gtk::Window>,
+                    None::<&gtk::gio::Cancellable>,
+                    move |result| {
+                        if let Ok(file) = result {
+                            if let Some(path) = file.path() {
+                                let _ = input_sender.send(BubbleSettingsMsg::AddSharedDirPath(
+                                    path.to_string_lossy().to_string()
+                                ));
+                            }
+                        }
+                    }
+                );
+            }
+            BubbleSettingsMsg::AddSharedDirPath(path) => {
+                self.dirs.guard().push_back(path);
+            }
+            BubbleSettingsMsg::RemoveSharedDir(index) => {
+                self.dirs.guard().remove(index.current_index());
             }
         }
     }
@@ -285,6 +483,7 @@ enum WarnCloseDialogMsg {
     Ack,
 }
 
+#[allow(unused)]
 #[relm4::component]
 impl SimpleComponent for WarnCloseDialog {
     type Init = ();
@@ -327,6 +526,7 @@ impl SimpleComponent for WarnCloseDialog {
     }
 }
 
+#[allow(unused)]
 #[relm4::component]
 impl SimpleComponent for CreateBubbleDialog {
     type Init = ();
@@ -567,13 +767,14 @@ impl AsyncFactoryComponent for VmEntry {
                                 "--socket".into(),
                                 passt_socket_path.to_str().expect("string").into(),
                             ];
-                            if !config.tcp_ports.trim().is_empty() {
+                            let ports_joined = config.tcp_ports.join(",");
+                            if !ports_joined.is_empty() {
                                 passt_args.push("--tcp-ports".into());
-                                passt_args.push(config.tcp_ports.trim().into());
+                                passt_args.push(ports_joined);
                             }
-                            if !config.map_host_loopback.trim().is_empty() {
+                            if config.map_host_loopback {
                                 passt_args.push("--map-host-loopback".into());
-                                passt_args.push(config.map_host_loopback.trim().into());
+                                passt_args.push("169.254.0.1".into());
                             }
                             let passt_args_os: Vec<&OsStr> = passt_args.iter().map(|s| OsStr::new(s.as_str())).collect();
                             let passt_process = gtk::gio::Subprocess::newv(
@@ -619,11 +820,7 @@ impl AsyncFactoryComponent for VmEntry {
                             ];
 
                             // Add shared directories
-                            let shared_dirs: Vec<&str> = config.shared_dirs.split(',')
-                                .map(|s| s.trim())
-                                .filter(|s| !s.is_empty())
-                                .collect();
-                            for (i, dir) in shared_dirs.iter().enumerate() {
+                            for (i, dir) in config.shared_dirs.iter().enumerate() {
                                 let tag = format!("shared{}", i);
                                 let shared_arg = format!("{}:{}:type=fs", dir, tag);
                                 crosvm_args.push(Box::new("--shared-dir".to_string()));
@@ -677,6 +874,7 @@ enum AppMsg {
     OpenBubbleSettings(String),
 }
 
+#[allow(unused)]
 #[relm4::component]
 impl SimpleComponent for App {
     type Init = ();
