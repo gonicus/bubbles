@@ -116,6 +116,7 @@ jobs:
               "socat",
               "libglib2.0-bin",
               "docker.io",
+              "dconf-cli",
               "nix-bin"
             ]}]
             ' | yq -y '
@@ -195,6 +196,7 @@ jobs:
           mkdir -p /home/user/.config/systemd/user/default.target.wants
           ln -s /etc/systemd/user/sommelier.service /home/user/.config/systemd/user/default.target.wants/sommelier.service
           chown -R user: /home/user/.config
+          dconf update
 
           # Install bootstrapping copy of home-manager; It should be self-managing after initial install
           nix-store --import < /opt/home-manager-export.nar
