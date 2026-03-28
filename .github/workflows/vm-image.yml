@@ -192,7 +192,7 @@ jobs:
           nix-channel --add https://nixos.org/channels/nixos-25.11 nixpkgs
           mkdir -p /etc/skel/.config
           starship preset nerd-font-symbols -o /etc/skel/.config/starship.toml
-          useradd -m -G sudo,render,video,nix-users,docker -s /bin/bash -p "" user
+          useradd -m -G sudo,render,video,nix-users,cdrom,docker -s /bin/bash -p "" user
           mkdir -p /home/user/.config/systemd/user/default.target.wants
           ln -s /etc/systemd/user/sommelier.service /home/user/.config/systemd/user/default.target.wants/sommelier.service
           chown -R user: /home/user/.config
