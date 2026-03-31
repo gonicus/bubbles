@@ -123,6 +123,11 @@ jobs:
             .files += [
               {
                 "generator": "copy",
+                "path": "/etc/profile.d/home-manager.sh",
+                "source": "./etcprofiledhomemanagersh"
+              },
+              {
+                "generator": "copy",
                 "path": "/etc/skel/.bashrc",
                 "source": "./bashrc"
               },
@@ -299,6 +304,12 @@ jobs:
           export HISTSIZE=10000
           export HISTCONTROL=ignoreboth
           . /etc/bash_completion
+          EOF
+
+          cat > etcprofiledhomemanagersh <<EOF
+          if [ -f "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh" ] ; then
+            source "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh"
+          fi
           EOF
 
       - name: Download bubbles-agent and sommelier
