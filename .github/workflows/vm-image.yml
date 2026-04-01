@@ -123,8 +123,8 @@ jobs:
             .files += [
               {
                 "generator": "copy",
-                "path": "/etc/profile.d/bubbles.sh",
-                "source": "./etcprofiledbubblessh"
+                "path": "/etc/profile.d/zzbubbles.sh",
+                "source": "./etcprofiledzzbubblessh"
               },
               {
                 "generator": "copy",
@@ -286,13 +286,13 @@ jobs:
           cat > etcdconfdblocald01bubbles <<EOF
           [org/gnome/Console]
           use-system-font=true
-          shell="['/usr/bin/bash', '-l']"
+          shell=['/usr/bin/bash', '-l']
 
           [org/gnome/desktop/interface]
           monospace-font-name='FiraCode Nerd Font Mono'
           EOF
 
-          cat > etcprofiledbubblessh <<EOF
+          cat > etcprofiledzzbubblessh <<EOF
           eval "\$(starship init bash)"
           export NIX_SHELL_PRESERVE_PROMPT=true
           export PATH=\$PATH:\$HOME/.nix-profile/bin
