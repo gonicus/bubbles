@@ -8,7 +8,7 @@ BUBBLES_DIR=$PWD
 mkdir -p $TARGET_DIRECTORY
 cd $TARGET_DIRECTORY
 
-$BUBBLES_DIR/oras pull ghcr.io/gonicus/bubbles/vm-image:b94678cf8785b82f0147f9a3fd5d5220c0b981a4
+$BUBBLES_DIR/oras pull ghcr.io/gonicus/bubbles/vm-image:9464fca145e9e1e14e4e481088b72fc4826ebe5b
 
 qemu-img convert -f qcow2 -O raw disk.qcow2 disk.img
 truncate -s +15G disk.img
