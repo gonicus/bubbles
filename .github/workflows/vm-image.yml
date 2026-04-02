@@ -301,6 +301,7 @@ jobs:
           if [ -f "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh" ] ; then
             source "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh"
           fi
+          echo -ne "\033]0;\$HOSTNAME\007"
           EOF
 
       - name: Download bubbles-agent and sommelier
