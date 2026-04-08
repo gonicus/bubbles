@@ -288,7 +288,7 @@ impl AsyncFactoryComponent for VmEntry {
                     set_label: match self.value.status {
                         VMStatus::NotRunning => "Stopped",
                         VMStatus::Running => "Running",
-                        VMStatus::InFlux => "Working...",
+                        VMStatus::InFlux => "Starting...",
                     }
                 },
                 append = &gtk::Button {
