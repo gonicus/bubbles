@@ -471,6 +471,8 @@ impl AsyncFactoryComponent for VmEntry {
                                 Box::new("root=/dev/vda2".to_string()),
                             ];
 
+                            crosvm_args.push(Box::new("-p".to_string()));
+                            crosvm_args.push(Box::new(format!("systemd.hostname={}", vm_name)));
                             crosvm_args.push(Box::new(image_linuz_path.clone()));
 
                             let crosvm_args_os: Vec<&OsStr> = crosvm_args.iter().map(|s| (*s).as_ref().as_ref()).collect();
