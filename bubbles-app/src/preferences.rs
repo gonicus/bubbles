@@ -150,7 +150,8 @@ impl SimpleComponent for BubbleSettingsDialog {
                     },
                 },
                 add = &relm4::adw::PreferencesGroup {
-                    set_title: "Network",
+                    set_title: "Network: Host Map",
+                    set_description: Some("Guest calls Host"),
                     #[local_ref]
                     add = loopback_row -> relm4::adw::SwitchRow {
                         set_title: "Map Host Loopback",
@@ -158,8 +159,8 @@ impl SimpleComponent for BubbleSettingsDialog {
                     },
                 },
                 add = &relm4::adw::PreferencesGroup {
-                    set_title: "TCP Port Forwards",
-                    set_description: Some("Applied on next startup"),
+                    set_title: "Port Forwarding",
+                    set_description: Some("Host calls Guest"),
                     #[wrap(Some)]
                     set_header_suffix = &gtk::Button {
                         set_icon_name: "list-add-symbolic",
