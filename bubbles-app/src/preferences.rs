@@ -157,7 +157,6 @@ pub struct BubbleSettingsDialog {
     vm_name: String,
     cpu_row: relm4::adw::SpinRow,
     ram_row: relm4::adw::SpinRow,
-    sound_row: relm4::adw::SwitchRow,
     loopback_row: relm4::adw::SwitchRow,
     ports: FactoryVecDeque<PortEntry>,
     dirs: FactoryVecDeque<DirEntry>,
@@ -195,14 +194,6 @@ impl SimpleComponent for BubbleSettingsDialog {
                     #[local_ref]
                     add = ram_row -> relm4::adw::SpinRow {
                         set_title: "RAM (MB)",
-                    },
-                },
-                add = &relm4::adw::PreferencesGroup {
-                    set_title: "Features",
-                    #[local_ref]
-                    add = sound_row -> relm4::adw::SwitchRow {
-                        set_title: "Sound Socket Forwarding",
-                        set_subtitle: "Forward PulseAudio socket via VSOCK",
                     },
                 },
                 add = &relm4::adw::PreferencesGroup {
@@ -248,7 +239,6 @@ impl SimpleComponent for BubbleSettingsDialog {
     ) -> ComponentParts<Self> {
         let cpu_row = relm4::adw::SpinRow::with_range(1.0, host_cpu_count() as f64, 1.0);
         let ram_row = relm4::adw::SpinRow::with_range(512.0, host_ram_mb() as f64, 512.0);
-        let sound_row = relm4::adw::SwitchRow::new();
         let loopback_row = relm4::adw::SwitchRow::new();
 
         let ports: FactoryVecDeque<PortEntry> = FactoryVecDeque::builder()
@@ -270,7 +260,6 @@ impl SimpleComponent for BubbleSettingsDialog {
             vm_name: String::new(),
             cpu_row: cpu_row.clone(),
             ram_row: ram_row.clone(),
-            sound_row: sound_row.clone(),
             loopback_row: loopback_row.clone(),
             ports,
             dirs,
@@ -278,7 +267,6 @@ impl SimpleComponent for BubbleSettingsDialog {
 
         let cpu_row = &cpu_row;
         let ram_row = &ram_row;
-        let sound_row = &sound_row;
         let loopback_row = &loopback_row;
         let ports_listbox = &ports_listbox_widget;
         let dirs_listbox = &dirs_listbox_widget;
@@ -294,7 +282,6 @@ impl SimpleComponent for BubbleSettingsDialog {
                 let config = load_config(&self.vm_name);
                 self.cpu_row.set_value(config.cpus as f64);
                 self.ram_row.set_value(config.ram_mb as f64);
-                self.sound_row.set_active(config.sound_forwarding);
                 self.loopback_row.set_active(config.map_host_loopback);
 
                 let mut ports_guard = self.ports.guard();
@@ -323,7 +310,6 @@ impl SimpleComponent for BubbleSettingsDialog {
                 let config = BubbleConfig {
                     cpus: self.cpu_row.value() as u32,
                     ram_mb: self.ram_row.value() as u32,
-                    sound_forwarding: self.sound_row.is_active(),
                     tcp_ports,
                     map_host_loopback: self.loopback_row.is_active(),
                     shared_dirs,

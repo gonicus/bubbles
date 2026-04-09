@@ -19,7 +19,6 @@ use preferences::{BubbleSettingsDialog, BubbleSettingsMsg};
 pub struct BubbleConfig {
     pub cpus: u32,
     pub ram_mb: u32,
-    pub sound_forwarding: bool,
     pub tcp_ports: Vec<String>,
     pub map_host_loopback: bool,
     pub shared_dirs: Vec<String>,
@@ -30,7 +29,6 @@ impl Default for BubbleConfig {
         Self {
             cpus: 4,
             ram_mb: 7000,
-            sound_forwarding: false,
             tcp_ports: vec![],
             map_host_loopback: false,
             shared_dirs: vec![],
@@ -157,7 +155,6 @@ enum WarnCloseDialogMsg {
     Ack,
 }
 
-#[allow(unused)]
 #[relm4::component]
 impl SimpleComponent for WarnCloseDialog {
     type Init = ();
@@ -200,7 +197,6 @@ impl SimpleComponent for WarnCloseDialog {
     }
 }
 
-#[allow(unused)]
 #[relm4::component]
 impl SimpleComponent for CreateBubbleDialog {
     type Init = ();
@@ -415,22 +411,6 @@ impl AsyncFactoryComponent for VmEntry {
                                 SubprocessFlags::empty()
                             ).expect("start of socat process");
 
-                            // Sound socket forwarding
-                            let sound_socat_process = if config.sound_forwarding {
-                                let xdg_runtime = env::var("XDG_RUNTIME_DIR").expect("XDG_RUNTIME_DIR to be set");
-                                let pulse_path = format!("{}/pulse/native", xdg_runtime);
-                                Some(gtk::gio::Subprocess::newv(
-                                    &[
-                                        OsStr::new(Path::new(&env::var("HOME").expect("HOME var to be set")).join("bubbles/socat").as_os_str()),
-                                        OsStr::new("VSOCK-LISTEN:11112,fork"),
-                                        OsStr::new(&format!("UNIX-CONNECT:{}", pulse_path)),
-                                    ],
-                                    SubprocessFlags::empty()
-                                ).expect("start of sound socat process"))
-                            } else {
-                                None
-                            };
-
                             // Build passt args
                             let mut passt_args: Vec<String> = vec![
                                 "passt".into(),
@@ -511,14 +491,8 @@ impl AsyncFactoryComponent for VmEntry {
                             crosvm_process.wait_future().await.expect("vm to stop");
                             socat_process.send_signal(SIGTERM); // Marker: Incompatible with Windows
                             passt_process.send_signal(SIGTERM);
-                            if let Some(ref sound_proc) = sound_socat_process {
-                                sound_proc.send_signal(SIGTERM);
-                            }
                             socat_process.wait_future().await.expect("socat to stop");
                             passt_process.wait_future().await.expect("passt to stop");
-                            if let Some(sound_proc) = sound_socat_process {
-                                sound_proc.wait_future().await.expect("sound socat to stop");
-                            }
                             sender.output(VmStateUpdate::Update(index, VMStatus::NotRunning)).unwrap();
                         });
                     },
@@ -546,7 +520,6 @@ enum AppMsg {
     OpenBubbleSettings(String),
 }
 
-#[allow(unused)]
 #[relm4::component]
 impl SimpleComponent for App {
     type Init = ();
