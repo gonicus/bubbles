@@ -208,11 +208,22 @@ impl SimpleComponent for CreateBubbleDialog {
             set_child = &relm4::adw::StatusPage {
                 set_icon_name: Some("window-new-symbolic"),
                 set_title: "Create new Bubble",
-                set_description: Some("Enter name and confirm with ENTER"),
+                set_description: Some("Enter name and confirm with ENTER (alphanumeric and hyphens only)"),
                 #[wrap(Some)]
                 set_child = &gtk::Entry {
+                    connect_changed => move |entry| {
+                        let name: String = entry.text().into();
+                        if !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+                            entry.remove_css_class("error");
+                        } else {
+                            entry.add_css_class("error");
+                        }
+                    },
                     connect_activate[sender] => move |entry| {
                         let name: String = entry.text().into();
+                        if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+                            return;
+                        }
                         sender.output(AppMsg::CreateNewBubble(name)).unwrap();
                         entry.buffer().delete_text(0, None);
                         sender.output(AppMsg::HideBubbleCreationDialog).unwrap();
@@ -475,6 +486,7 @@ impl AsyncFactoryComponent for VmEntry {
 
                             crosvm_args.push(Box::new("-p".to_string()));
                             crosvm_args.push(Box::new(format!("systemd.hostname={}", vm_name)));
+
                             crosvm_args.push(Box::new(image_linuz_path.clone()));
 
                             let crosvm_args_os: Vec<&OsStr> = crosvm_args.iter().map(|s| (*s).as_ref().as_ref()).collect();
