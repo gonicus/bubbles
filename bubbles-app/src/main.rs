@@ -343,6 +343,8 @@ impl AsyncFactoryComponent for VmEntry {
                     }
                 },
                 append = &gtk::Button {
+                    #[watch]
+                    set_sensitive: self.value.status == VMStatus::NotRunning,
                     set_icon_name: "emblem-system-symbolic",
                     set_tooltip_text: Some("Settings"),
                     connect_clicked[sender, index] => move |_| {
