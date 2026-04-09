@@ -107,50 +107,6 @@ impl FactoryComponent for PortEntry {
     }
 }
 
-// --- Directory Entry Factory Component ---
-
-#[derive(Debug)]
-struct DirEntry {
-    path: String,
-}
-
-#[derive(Debug)]
-enum DirEntryOutput {
-    Remove(DynamicIndex),
-}
-
-#[relm4::factory]
-impl FactoryComponent for DirEntry {
-    type Init = String;
-    type Input = ();
-    type Output = DirEntryOutput;
-    type CommandOutput = ();
-    type ParentWidget = gtk::ListBox;
-
-    view! {
-        #[root]
-        relm4::adw::ActionRow {
-            set_title: &self.path,
-            add_prefix = &gtk::Image {
-                set_icon_name: Some("folder-symbolic"),
-            },
-            add_suffix = &gtk::Button {
-                set_icon_name: "user-trash-symbolic",
-                set_valign: gtk::Align::Center,
-                connect_clicked[sender, index] => move |_| {
-                    sender.output(DirEntryOutput::Remove(index.clone())).unwrap();
-                }
-            },
-        }
-    }
-
-    fn init_model(path: Self::Init, _index: &DynamicIndex, _sender: FactorySender<Self>) -> Self {
-        Self { path }
-    }
-
-    fn update(&mut self, _msg: Self::Input, _sender: FactorySender<Self>) {}
-}
-
 // --- Bubble Settings Dialog ---
 
 pub struct BubbleSettingsDialog {
@@ -159,7 +115,6 @@ pub struct BubbleSettingsDialog {
     ram_row: relm4::adw::SpinRow,
     loopback_row: relm4::adw::SwitchRow,
     ports: FactoryVecDeque<PortEntry>,
-    dirs: FactoryVecDeque<DirEntry>,
 }
 
 #[derive(Debug)]
@@ -168,9 +123,6 @@ pub enum BubbleSettingsMsg {
     Save,
     AddPort,
     RemovePort(DynamicIndex),
-    AddSharedDir,
-    AddSharedDirPath(String),
-    RemoveSharedDir(DynamicIndex),
 }
 
 #[allow(unused)]
@@ -183,6 +135,7 @@ impl SimpleComponent for BubbleSettingsDialog {
     view! {
         dialog = relm4::adw::PreferencesDialog {
             set_title: "Bubble Settings",
+            set_content_height: 550,
             connect_closed => BubbleSettingsMsg::Save,
             add = &relm4::adw::PreferencesPage {
                 add = &relm4::adw::PreferencesGroup {
@@ -216,18 +169,6 @@ impl SimpleComponent for BubbleSettingsDialog {
                     #[local_ref]
                     add = ports_listbox -> gtk::ListBox {},
                 },
-                add = &relm4::adw::PreferencesGroup {
-                    set_title: "Shared Directories",
-                    set_description: Some("Mounted via virtiofs, applied on next startup"),
-                    #[wrap(Some)]
-                    set_header_suffix = &gtk::Button {
-                        set_icon_name: "list-add-symbolic",
-                        set_valign: gtk::Align::Center,
-                        connect_clicked => BubbleSettingsMsg::AddSharedDir,
-                    },
-                    #[local_ref]
-                    add = dirs_listbox -> gtk::ListBox {},
-                },
             },
         }
     }
@@ -247,14 +188,7 @@ impl SimpleComponent for BubbleSettingsDialog {
                 PortEntryOutput::Remove(index) => BubbleSettingsMsg::RemovePort(index),
             });
 
-        let dirs: FactoryVecDeque<DirEntry> = FactoryVecDeque::builder()
-            .launch_default()
-            .forward(sender.input_sender(), |output| match output {
-                DirEntryOutput::Remove(index) => BubbleSettingsMsg::RemoveSharedDir(index),
-            });
-
         let ports_listbox_widget = ports.widget().clone();
-        let dirs_listbox_widget = dirs.widget().clone();
 
         let model = BubbleSettingsDialog {
             vm_name: String::new(),
@@ -262,14 +196,12 @@ impl SimpleComponent for BubbleSettingsDialog {
             ram_row: ram_row.clone(),
             loopback_row: loopback_row.clone(),
             ports,
-            dirs,
         };
 
         let cpu_row = &cpu_row;
         let ram_row = &ram_row;
         let loopback_row = &loopback_row;
         let ports_listbox = &ports_listbox_widget;
-        let dirs_listbox = &dirs_listbox_widget;
 
         let widgets = view_output!();
         ComponentParts { model, widgets }
@@ -291,11 +223,6 @@ impl SimpleComponent for BubbleSettingsDialog {
                 }
                 drop(ports_guard);
 
-                let mut dirs_guard = self.dirs.guard();
-                dirs_guard.clear();
-                for dir in &config.shared_dirs {
-                    dirs_guard.push_back(dir.clone());
-                }
             }
             BubbleSettingsMsg::Save => {
                 if self.vm_name.is_empty() { return; }
@@ -303,16 +230,11 @@ impl SimpleComponent for BubbleSettingsDialog {
                     .map(|entry| entry.text.trim().to_string())
                     .filter(|s| !s.is_empty() && is_valid_port_entry(s))
                     .collect();
-                let shared_dirs: Vec<String> = self.dirs.iter()
-                    .map(|entry| entry.path.clone())
-                    .filter(|s| !s.trim().is_empty())
-                    .collect();
                 let config = BubbleConfig {
                     cpus: self.cpu_row.value() as u32,
                     ram_mb: self.ram_row.value() as u32,
                     tcp_ports,
                     map_host_loopback: self.loopback_row.is_active(),
-                    shared_dirs,
                 };
                 save_config(&self.vm_name, &config);
             }
@@ -321,30 +243,6 @@ impl SimpleComponent for BubbleSettingsDialog {
             }
             BubbleSettingsMsg::RemovePort(index) => {
                 self.ports.guard().remove(index.current_index());
-            }
-            BubbleSettingsMsg::AddSharedDir => {
-                let dialog = gtk::FileDialog::new();
-                dialog.set_title("Select Directory");
-                let input_sender = sender.input_sender().clone();
-                dialog.select_folder(
-                    None::<&gtk::Window>,
-                    None::<&gtk::gio::Cancellable>,
-                    move |result| {
-                        if let Ok(file) = result {
-                            if let Some(path) = file.path() {
-                                let _ = input_sender.send(BubbleSettingsMsg::AddSharedDirPath(
-                                    path.to_string_lossy().to_string()
-                                ));
-                            }
-                        }
-                    }
-                );
-            }
-            BubbleSettingsMsg::AddSharedDirPath(path) => {
-                self.dirs.guard().push_back(path);
-            }
-            BubbleSettingsMsg::RemoveSharedDir(index) => {
-                self.dirs.guard().remove(index.current_index());
             }
         }
     }
