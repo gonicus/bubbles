@@ -21,7 +21,6 @@ pub struct BubbleConfig {
     pub ram_mb: u32,
     pub tcp_ports: Vec<String>,
     pub map_host_loopback: bool,
-    pub shared_dirs: Vec<String>,
 }
 
 impl Default for BubbleConfig {
@@ -31,7 +30,6 @@ impl Default for BubbleConfig {
             ram_mb: 7000,
             tcp_ports: vec![],
             map_host_loopback: false,
-            shared_dirs: vec![],
         }
     }
 }
@@ -470,14 +468,6 @@ impl AsyncFactoryComponent for VmEntry {
                                 Box::new("-p".to_string()),
                                 Box::new("root=/dev/vda2".to_string()),
                             ];
-
-                            // Add shared directories
-                            for (i, dir) in config.shared_dirs.iter().enumerate() {
-                                let tag = format!("shared{}", i);
-                                let shared_arg = format!("{}:{}:type=fs", dir, tag);
-                                crosvm_args.push(Box::new("--shared-dir".to_string()));
-                                crosvm_args.push(Box::new(shared_arg));
-                            }
 
                             crosvm_args.push(Box::new(image_linuz_path.clone()));
 
