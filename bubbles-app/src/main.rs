@@ -342,17 +342,15 @@ impl AsyncFactoryComponent for VmEntry {
             add_prefix = &gtk::Image {
                 set_icon_name: Some("computer-symbolic")
             },
+            add_suffix = &gtk::Spinner {
+                #[watch]
+                set_visible: self.value.status == VMStatus::InFlux,
+                #[watch]
+                set_spinning: self.value.status == VMStatus::InFlux,
+            },
             add_suffix = &gtk::Box {
                 set_orientation: gtk::Orientation::Horizontal,
-                set_spacing: 5,
-                append = &gtk::Label {
-                    #[watch]
-                    set_label: match self.value.status {
-                        VMStatus::NotRunning => "Stopped",
-                        VMStatus::Running => "Running",
-                        VMStatus::InFlux => "Starting...",
-                    }
-                },
+                set_css_classes: &["linked"],
                 append = &gtk::Button {
                     #[watch]
                     set_sensitive: self.value.status == VMStatus::NotRunning,
@@ -363,7 +361,19 @@ impl AsyncFactoryComponent for VmEntry {
                     }
                 },
                 append = &gtk::Button {
-                    set_icon_name: "system-shutdown-symbolic",
+                    #[watch]
+                    set_sensitive: self.value.status != VMStatus::InFlux,
+                    #[watch]
+                    set_icon_name: match self.value.status {
+                        VMStatus::NotRunning => "media-playback-start-symbolic",
+                        VMStatus::Running | VMStatus::InFlux => "media-playback-stop-symbolic",
+                    },
+                    #[watch]
+                    set_css_classes: match self.value.status {
+                        VMStatus::Running => &["destructive-action"],
+                        _ => &[],
+                    },
+                    set_tooltip_text: Some("Power"),
                     connect_clicked[sender, index] => move |_| {
                         sender.input(VmMsg::PowerToggle(index.clone()));
                     }
@@ -399,11 +409,13 @@ impl AsyncFactoryComponent for VmEntry {
             },
             VmMsg::PowerToggle(index) => {
                 match self.value.status {
-                    VMStatus::Running | VMStatus::InFlux => {
+                    VMStatus::Running => {
+                        sender.output(VmStateUpdate::Update(index, VMStatus::InFlux)).unwrap();
                         relm4::spawn_local(async move {
                             request_shutdown(OsStr::new(&vsock_socket_path)).await;
                         });
                     },
+                    VMStatus::InFlux => {},
                     VMStatus::NotRunning => {
                         sender.output(VmStateUpdate::Update(index.clone(), VMStatus::InFlux)).unwrap();
                         relm4::spawn_local(async move {
