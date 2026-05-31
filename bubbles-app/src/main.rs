@@ -604,6 +604,7 @@ impl SimpleComponent for App {
                             }
                         }
                     } -> {
+                        set_name: Some("images"),
                         set_title: Some("Images"),
                         set_icon_name: Some("drive-harddisk-system-symbolic")
                     },
@@ -628,9 +629,11 @@ impl SimpleComponent for App {
                             _ => "vm-view",
                         },
                     } -> {
+                        set_name: Some("bubbles"),
                         set_title: Some("Bubbles"),
                         set_icon_name: Some("computer-symbolic"),
-                    }
+                    },
+                    set_visible_child_name: "bubbles",
                 }
             },
 
