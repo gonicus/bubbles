@@ -438,7 +438,7 @@ impl AsyncFactoryComponent for VmEntry {
 
                             // Build passt args
                             let mut passt_args: Vec<String> = vec![
-                                "passt".into(),
+                                Path::new(&env::var("HOME").expect("HOME var to be set")).join("bubbles/passt").to_str().expect("string").into(),
                                 "-f".into(),
                                 "--vhost-user".into(),
                                 "--socket".into(),

@@ -182,7 +182,7 @@ jobs:
       - run: |
           cat > Dockerfile <<EOF
           FROM debian:trixie
-          RUN apt-get update && apt-get install -y libgtk-4-dev libadwaita-1-dev socat oras
+          RUN apt-get update && apt-get install -y libgtk-4-dev libadwaita-1-dev socat oras passt
           RUN mkdir -p /runtime_libs && cd /usr/lib/x86_64-linux-gnu && cp libadwaita-1.so libgtk-4.so libwrap.so.0 /runtime_libs
 
           FROM busybox
@@ -193,6 +193,7 @@ jobs:
           COPY binaries/bubbles .
           COPY --from=0 /usr/bin/socat1 ./socat
           COPY --from=0 /usr/bin/oras .
+          COPY --from=0 /usr/bin/passt .
           COPY ./bubbles-app/scripts /opt/artifacts/scripts
           VOLUME ["/output"]
           ENTRYPOINT ["/bin/sh", "-c"]
