@@ -22,7 +22,6 @@ Right now, bubbles is distributed via a container outputting the required binari
 
 Requirements:
 - `podman`/`docker` for installation
-- `passt`
 - `qemu-img`
 - `curl`
 
@@ -35,7 +34,7 @@ Loose Recommendation:
 mkdir $HOME/bubbles
 # May be different for non-SELinux systems: skip ":Z"
 # May be different for docker: You may need to chown files afterwards
-podman run -v "$HOME/bubbles:/output:Z" ghcr.io/gonicus/bubbles/bubbles:421f94bdf393106e7e5264ee83316073782e669b
+podman run -v "$HOME/bubbles:/output:Z" ghcr.io/gonicus/bubbles/bubbles:918b181f80cd0759ba5503cc97e3c2d05dd8fe04
 # For .desktop file:
 cat > ~/.local/share/applications/bubbles.desktop <<EOF
 [Desktop Entry]
