@@ -2,7 +2,7 @@ use relm4::adw::prelude::*;
 use gtk::prelude::{ButtonExt, EditableExt};
 use relm4::factory::{DynamicIndex, FactoryVecDeque};
 use relm4::prelude::FactoryComponent;
-use relm4::{ComponentParts, ComponentSender, FactorySender, SimpleComponent};
+use relm4::{Component, ComponentController, ComponentParts, ComponentSender, FactorySender, SimpleComponent};
 use std::{env, fs, path::PathBuf};
 
 use crate::{BubbleConfig, load_config, save_config};
@@ -102,6 +102,11 @@ enum PortEntryOutput {
     Remove(DynamicIndex),
 }
 
+#[derive(Debug)]
+pub enum BubbleSettingsOutput {
+    DeleteBubble(String),
+}
+
 #[relm4::factory]
 impl FactoryComponent for PortEntry {
     type Init = String;
@@ -145,23 +150,100 @@ impl FactoryComponent for PortEntry {
     }
 }
 
+// --- Delete Confirmation Dialog ---
+
+struct DeleteConfirmDialog {
+    root_dialog: relm4::adw::Dialog,
+    vm_name: String,
+}
+
+#[derive(Debug)]
+enum DeleteConfirmDialogMsg {
+    Confirm,
+    Cancel,
+}
+
+#[relm4::component]
+impl SimpleComponent for DeleteConfirmDialog {
+    type Init = String;
+    type Input = DeleteConfirmDialogMsg;
+    type Output = String;
+
+    view! {
+        dialog = relm4::adw::Dialog {
+            set_size_request: (400, 200),
+            #[wrap(Some)]
+            set_child = &relm4::adw::StatusPage {
+                set_icon_name: Some("user-trash-symbolic"),
+                set_title: "Delete Bubble",
+                set_description: Some(&format!("This will permanently delete '{}' and all its data. This cannot be undone.", &model.vm_name)),
+                #[wrap(Some)]
+                set_child = &gtk::Box {
+                    set_orientation: gtk::Orientation::Horizontal,
+                    set_spacing: 12,
+                    set_halign: gtk::Align::Center,
+                    append = &gtk::Button {
+                        set_label: "Cancel",
+                        connect_clicked => DeleteConfirmDialogMsg::Cancel,
+                    },
+                    append = &gtk::Button {
+                        set_label: "Delete",
+                        set_css_classes: &["destructive-action"],
+                        connect_clicked => DeleteConfirmDialogMsg::Confirm,
+                    },
+                }
+            },
+        }
+    }
+
+    fn init(
+        vm_name: Self::Init,
+        root: Self::Root,
+        _sender: ComponentSender<Self>,
+    ) -> ComponentParts<Self> {
+        let model = DeleteConfirmDialog { root_dialog: root.clone(), vm_name };
+        let widgets = view_output!();
+        ComponentParts { model, widgets }
+    }
+
+    fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>) {
+        match msg {
+            DeleteConfirmDialogMsg::Confirm => {
+                let vm_name = self.vm_name.clone();
+                self.root_dialog.close();
+                sender.output(vm_name).ok();
+            }
+            DeleteConfirmDialogMsg::Cancel => {
+                self.root_dialog.close();
+            }
+        }
+    }
+}
+
 // --- Bubble Settings Dialog ---
 
 pub struct BubbleSettingsDialog {
     vm_name: String,
+    dialog: relm4::adw::PreferencesDialog,
     cpu_row: relm4::adw::SpinRow,
     ram_row: relm4::adw::SpinRow,
     loopback_row: relm4::adw::SwitchRow,
     disk_size_row: relm4::adw::SpinRow,
     current_disk_gb: u32,
     desired_disk_gb: u32,
+    is_being_deleted: bool,
     ports: FactoryVecDeque<PortEntry>,
+    delete_confirm: Option<relm4::Controller<DeleteConfirmDialog>>,
+    title: String,
 }
 
 #[derive(Debug)]
 pub enum BubbleSettingsMsg {
     Load(String),
     Save,
+    Close,
+    Delete,
+    DeleteConfirmed(String),
     AddPort,
     RemovePort(DynamicIndex),
     GrowDisk,
@@ -173,11 +255,12 @@ pub enum BubbleSettingsMsg {
 impl SimpleComponent for BubbleSettingsDialog {
     type Init = ();
     type Input = BubbleSettingsMsg;
-    type Output = ();
+    type Output = BubbleSettingsOutput;
 
     view! {
         dialog = relm4::adw::PreferencesDialog {
-            set_title: "Bubble Settings",
+            #[watch]
+            set_title: &model.title,
             set_content_height: 550,
             connect_closed => BubbleSettingsMsg::Save,
             add = &relm4::adw::PreferencesPage {
@@ -232,6 +315,27 @@ impl SimpleComponent for BubbleSettingsDialog {
                     #[local_ref]
                     add = ports_listbox -> gtk::ListBox {},
                 },
+                add = &relm4::adw::PreferencesGroup {
+                    #[local_ref]
+                    add = button_box -> gtk::Box {
+                        set_orientation: gtk::Orientation::Vertical,
+                        set_spacing: 6,
+                        set_halign: gtk::Align::Fill,
+                        set_margin_end: 12,
+                        set_margin_bottom: 12,
+                        append = &gtk::Button {
+                            set_label: "Delete Bubble",
+                            set_css_classes: &["destructive-action"],
+                            set_hexpand: true,
+                            connect_clicked => BubbleSettingsMsg::Delete,
+                        },
+                        append = &gtk::Button {
+                            set_label: "Close",
+                            set_hexpand: true,
+                            connect_clicked => BubbleSettingsMsg::Close,
+                        },
+                    }
+                },
             },
         }
     }
@@ -256,13 +360,17 @@ impl SimpleComponent for BubbleSettingsDialog {
 
         let model = BubbleSettingsDialog {
             vm_name: String::new(),
+            dialog: root.clone(),
             cpu_row: cpu_row.clone(),
             ram_row: ram_row.clone(),
             loopback_row: loopback_row.clone(),
             disk_size_row: disk_size_row.clone(),
             current_disk_gb: 0,
             desired_disk_gb: 0,
+            is_being_deleted: false,
             ports,
+            delete_confirm: None,
+            title: "Bubble Settings".to_string(),
         };
 
         let cpu_row = &cpu_row;
@@ -270,6 +378,7 @@ impl SimpleComponent for BubbleSettingsDialog {
         let loopback_row = &loopback_row;
         let disk_size_row = &disk_size_row;
         let ports_listbox = &ports_listbox_widget;
+        let button_box = &gtk::Box::new(gtk::Orientation::Vertical, 6);
 
         let widgets = view_output!();
         ComponentParts { model, widgets }
@@ -278,7 +387,8 @@ impl SimpleComponent for BubbleSettingsDialog {
     fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>) {
         match msg {
             BubbleSettingsMsg::Load(name) => {
-                self.vm_name = name;
+                self.vm_name = name.clone();
+                self.title = format!("{} Settings", name);
                 let config = load_config(&self.vm_name);
                 self.cpu_row.set_value(config.cpus as f64);
                 self.ram_row.set_value(config.ram_mb as f64);
@@ -298,8 +408,12 @@ impl SimpleComponent for BubbleSettingsDialog {
                 drop(ports_guard);
 
             }
+            BubbleSettingsMsg::Close => {
+                self.dialog.close();
+            }
             BubbleSettingsMsg::Save => {
                 if self.vm_name.is_empty() { return; }
+                if self.is_being_deleted { return; }
                 let tcp_ports: Vec<String> = self.ports.iter()
                     .map(|entry| entry.text.trim().to_string())
                     .filter(|s| !s.is_empty() && is_valid_port_entry(s))
@@ -311,6 +425,24 @@ impl SimpleComponent for BubbleSettingsDialog {
                     map_host_loopback: self.loopback_row.is_active(),
                 };
                 save_config(&self.vm_name, &config);
+            }
+            BubbleSettingsMsg::Delete => {
+                let vm_name = self.vm_name.clone();
+                let delete_sender = sender.input_sender();
+                let delete_dialog = DeleteConfirmDialog::builder()
+                    .launch(vm_name.clone())
+                    .forward(delete_sender, move |output| match output {
+                        name => {
+                            BubbleSettingsMsg::DeleteConfirmed(name)
+                        }
+                    });
+                delete_dialog.widgets().dialog.present(Some(&self.dialog));
+                self.delete_confirm = Some(delete_dialog);
+            }
+            BubbleSettingsMsg::DeleteConfirmed(name) => {
+                self.is_being_deleted = true;
+                sender.output(BubbleSettingsOutput::DeleteBubble(name)).ok();
+                self.dialog.close();
             }
             BubbleSettingsMsg::AddPort => {
                 self.ports.guard().push_back(String::new());

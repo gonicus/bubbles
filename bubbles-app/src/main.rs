@@ -13,7 +13,7 @@ use std::{env, fs, path::Path, ffi::OsStr};
 use libc::SIGTERM;
 use serde::{Deserialize, Serialize};
 
-use preferences::{BubbleSettingsDialog, BubbleSettingsMsg};
+use preferences::{BubbleSettingsDialog, BubbleSettingsMsg, BubbleSettingsOutput};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct BubbleConfig {
@@ -538,6 +538,7 @@ enum AppMsg {
     FinishBubbleCreation,
     CloseApplication,
     OpenBubbleSettings(String),
+    DeleteBubble(String),
 }
 
 #[relm4::component]
@@ -668,7 +669,9 @@ impl SimpleComponent for App {
             });
         let settings_dialog = BubbleSettingsDialog::builder()
             .launch(())
-            .detach();
+            .forward(sender.input_sender(), |output| match output {
+                BubbleSettingsOutput::DeleteBubble(name) => AppMsg::DeleteBubble(name),
+            });
 
         let mut model = App {
             vms,
@@ -737,6 +740,21 @@ impl SimpleComponent for App {
             AppMsg::OpenBubbleSettings(name) => {
                 self.settings_dialog.sender().send(BubbleSettingsMsg::Load(name)).unwrap();
                 self.settings_dialog.widgets().dialog.present(Some(&self.root));
+            }
+            AppMsg::DeleteBubble(name) => {
+                let vm_dir = env::current_dir()
+                    .expect("cwd to be set")
+                    .join(".bubbles/vms")
+                    .join(&name);
+                let _ = fs::remove_dir_all(&vm_dir);
+                let mut guard = self.vms.guard();
+                let mut index = 0;
+                for (i, vm) in guard.iter().enumerate() {
+                    if vm.unwrap().value.name == name {
+                        index = i;
+                    }
+                }
+                guard.remove(index);
             }
             AppMsg::CloseApplication => {
                 let mut vm_running = false;
