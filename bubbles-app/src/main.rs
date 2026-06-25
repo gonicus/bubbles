@@ -9,9 +9,10 @@ use relm4::{
     Controller, RelmApp, SimpleComponent, spawn
 };
 use relm4::factory::DynamicIndex;
-use std::{env, fs, path::Path, ffi::OsStr};
+use std::{env, fs, path::{Path, PathBuf}, ffi::{OsStr, OsString}};
 use libc::SIGTERM;
 use serde::{Deserialize, Serialize};
+use tokio::io::{AsyncWriteExt, AsyncReadExt};
 
 use preferences::{BubbleSettingsDialog, BubbleSettingsMsg, BubbleSettingsOutput};
 
@@ -34,12 +35,8 @@ impl Default for BubbleConfig {
     }
 }
 
-fn config_path(vm_name: &str) -> std::path::PathBuf {
-    env::current_dir()
-        .expect("cwd to be set")
-        .join(".bubbles/vms")
-        .join(vm_name)
-        .join("config.json")
+fn config_path(vm_name: &str) -> PathBuf {
+    get_data_dir().join("vms").join(vm_name).join("config.json")
 }
 
 pub fn load_config(vm_name: &str) -> BubbleConfig {
@@ -54,6 +51,71 @@ pub fn save_config(vm_name: &str, config: &BubbleConfig) {
     let path = config_path(vm_name);
     let data = serde_json::to_string_pretty(config).expect("config to serialize");
     fs::write(path, data).expect("config to be written");
+}
+
+pub fn get_data_dir() -> PathBuf {
+    let base = env::var("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from(env::var("HOME").expect("HOME")).join(".local/share"));
+    base.join("bubbles")
+}
+
+fn is_flatpak() -> bool {
+    Path::new("/.flatpak-info").exists()
+}
+
+fn make_host_args(args: &[&OsStr]) -> Vec<OsString> {
+    if is_flatpak() {
+        let uid = unsafe { libc::getuid() };
+        let mut v: Vec<OsString> = vec![
+            "flatpak-spawn".into(),
+            "--host".into(),
+            format!("--env=XDG_RUNTIME_DIR=/run/user/{}", uid).into(),
+        ];
+        v.extend(args.iter().map(|a| (*a).to_owned()));
+        v
+    } else {
+        args.iter().map(|a| (*a).to_owned()).collect()
+    }
+}
+
+fn flatpak_host_bin(name: &str) -> PathBuf {
+    // /.flatpak-info is always readable inside the sandbox and contains
+    // app-path=<host path> for the actual installation (user or system).
+    if let Ok(content) = fs::read_to_string("/.flatpak-info") {
+        for line in content.lines() {
+            if let Some(path) = line.strip_prefix("app-path=") {
+                return PathBuf::from(path).join("bin").join(name);
+            }
+        }
+    }
+    // Fallback for non-sandbox use
+    PathBuf::from(name)
+}
+
+fn wayland_sock_path() -> PathBuf {
+    if is_flatpak() {
+        let uid = unsafe { libc::getuid() };
+        let display = env::var("WAYLAND_DISPLAY").expect("WAYLAND_DISPLAY");
+        PathBuf::from(format!("/run/user/{}/{}", uid, display))
+    } else {
+        let runtime_dir = env::var("XDG_RUNTIME_DIR").expect("XDG_RUNTIME_DIR");
+        let display = env::var("WAYLAND_DISPLAY").expect("WAYLAND_DISPLAY");
+        PathBuf::from(runtime_dir).join(display)
+    }
+}
+
+async fn unix_http(socket: &Path, method: &str, path: &str) -> std::io::Result<String> {
+    let mut stream = tokio::net::UnixStream::connect(socket).await?;
+    // Content-Length: 0 included for POST correctness; harmless on GET
+    let req = format!(
+        "{} {} HTTP/1.0\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n",
+        method, path
+    );
+    stream.write_all(req.as_bytes()).await?;
+    let mut buf = Vec::new();
+    stream.read_to_end(&mut buf).await?;
+    Ok(String::from_utf8_lossy(&buf).into_owned())
 }
 
 struct CreateBubbleDialog {
@@ -71,9 +133,7 @@ enum ImageStatus {
 }
 
 fn determine_download_status() -> ImageStatus {
-    let images_dir = env::current_dir()
-        .expect("cwd to be set")
-        .join(Path::new(".bubbles/images"));
+    let images_dir = get_data_dir().join("images");
     fs::create_dir_all(&images_dir).expect("directory to exist or be created");
 
     let image_exists = images_dir.join(Path::new("debian-13/disk.img")).exists();
@@ -84,68 +144,133 @@ fn determine_download_status() -> ImageStatus {
     };
 }
 
-pub async fn wait_until_exists(path: &OsStr) {
+pub async fn wait_until_exists(path: &Path) {
     loop {
-        let process = gtk::gio::Subprocess::newv(
-            &[
-                OsStr::new("sh"),
-                OsStr::new("-c"),
-                OsStr::new("stat $0 || (sleep 0.5 && exit 1)"),
-                path,
-            ],
-            SubprocessFlags::empty()
-        ).expect("start of process");
-        process.wait_future().await.expect("probe to run");
-        if process.is_successful() {
-            return;
+        let exists = if is_flatpak() {
+            // /tmp is sandbox-private; check on the host
+            let args = make_host_args(&[
+                OsStr::new("test"),
+                OsStr::new("-e"),
+                path.as_os_str(),
+            ]);
+            let args_ref: Vec<&OsStr> = args.iter().map(OsString::as_os_str).collect();
+            let p = gtk::gio::Subprocess::newv(&args_ref, SubprocessFlags::STDERR_SILENCE)
+                .expect("spawn host test");
+            p.wait_future().await.ok();
+            p.is_successful()
+        } else {
+            path.exists()
+        };
+        if exists { return; }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+}
+
+pub async fn wait_until_ready(vsock_socket_path: &Path) {
+    loop {
+        match unix_http(vsock_socket_path, "GET", "/ready").await {
+            Ok(response) if response.contains("200") => return,
+            _ => {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            }
         }
     }
 }
 
-pub async fn wait_until_ready(vsock_socket_path: &OsStr) {
-    loop {
-        let process = gtk::gio::Subprocess::newv(
-            &[
-                OsStr::new("sh"),
-                OsStr::new("-c"),
-                OsStr::new("curl -sS --unix-socket $0 http://localhost/ready || (sleep 0.5 && exit 1)"),
-                vsock_socket_path,
-            ],
-            SubprocessFlags::empty()
-        ).expect("start of process");
-        process.wait_future().await.expect("probe to run");
-        if process.is_successful() {
-            return;
-        }
+pub async fn request_shutdown(vsock_socket_path: &Path) {
+    unix_http(vsock_socket_path, "POST", "/shutdown").await.ok();
+}
+
+pub async fn request_terminal(vsock_socket_path: &Path) {
+    unix_http(vsock_socket_path, "POST", "/spawn-terminal").await.ok();
+}
+
+// Pinned VM image release. Bump both when publishing a new vm-image-* release:
+// VM_IMAGE_SHA256 is the sha256 of the release's disk.tar.gz asset.
+const VM_IMAGE_TAG: &str = "vm-image-v1";
+const VM_IMAGE_SHA256: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+
+// Run a subprocess to completion, returning an error instead of panicking so
+// download failures can be surfaced without leaving the UI stuck.
+async fn run_checked(argv: &[&OsStr], flags: SubprocessFlags) -> Result<(), String> {
+    let name = argv.first().map(|a| a.to_string_lossy().into_owned()).unwrap_or_default();
+    let proc = gtk::gio::Subprocess::newv(argv, flags)
+        .map_err(|e| format!("failed to start {name}: {e}"))?;
+    proc.wait_future().await
+        .map_err(|e| format!("{name} did not complete: {e}"))?;
+    if proc.is_successful() {
+        Ok(())
+    } else {
+        Err(format!("{name} exited with a non-zero status"))
     }
 }
 
-pub async fn request_shutdown(vsock_socket_path: &OsStr) {
-    let process = gtk::gio::Subprocess::newv(
-        &[
-            OsStr::new("curl"),
-            OsStr::new("-XPOST"),
-            OsStr::new("--unix-socket"),
-            vsock_socket_path,
-            OsStr::new("http://localhost/shutdown"),
-        ],
-        SubprocessFlags::empty()
-    ).expect("start of process");
-    process.wait_future().await.expect("request to be made");
-}
+async fn download_image() {
+    let target_dir = get_data_dir().join("images/debian-13");
+    let tarball_path = target_dir.join("disk.tar.gz");
+    let checkfile_path = target_dir.join("disk.tar.gz.sha256");
+    let raw_path = target_dir.join("disk.img");
 
-pub async fn request_terminal(vsock_socket_path: &OsStr) {
-    let process = gtk::gio::Subprocess::newv(
-        &[
+    let result: Result<(), String> = async {
+        tokio::fs::create_dir_all(&target_dir).await
+            .map_err(|e| format!("could not create image directory: {e}"))?;
+
+        let url = format!(
+            "https://github.com/gonicus/bubbles/releases/download/{}/disk.tar.gz",
+            VM_IMAGE_TAG,
+        );
+
+        // Step 1: download the release tarball. curl and tar are provided by the
+        // Flatpak runtime; --share=network is already granted, so this runs
+        // inside the sandbox without flatpak-spawn.
+        run_checked(&[
             OsStr::new("curl"),
-            OsStr::new("-XPOST"),
-            OsStr::new("--unix-socket"),
-            vsock_socket_path,
-            OsStr::new("http://localhost/spawn-terminal"),
-        ],
-        SubprocessFlags::empty()
-    ).expect("start of process");
-    process.wait_future().await.expect("request to be made");
+            OsStr::new("-L"),
+            OsStr::new("--fail"),
+            OsStr::new("-o"),
+            tarball_path.as_os_str(),
+            OsStr::new(url.as_str()),
+        ], SubprocessFlags::empty()).await?;
+
+        // Step 2: verify integrity against the pinned checksum before extracting.
+        tokio::fs::write(
+            &checkfile_path,
+            format!("{}  {}\n", VM_IMAGE_SHA256, tarball_path.display()),
+        ).await.map_err(|e| format!("could not write checksum file: {e}"))?;
+        run_checked(&[
+            OsStr::new("sha256sum"),
+            OsStr::new("-c"),
+            checkfile_path.as_os_str(),
+        ], SubprocessFlags::STDOUT_SILENCE).await?;
+
+        // Step 3: extract disk.img, vmlinuz and initrd.img into the target dir.
+        run_checked(&[
+            OsStr::new("tar"),
+            OsStr::new("-xzf"),
+            tarball_path.as_os_str(),
+            OsStr::new("-C"),
+            target_dir.as_os_str(),
+        ], SubprocessFlags::empty()).await?;
+
+        // Step 4: expand disk (native Rust, no truncate binary needed)
+        let f = tokio::fs::OpenOptions::new().write(true).open(&raw_path).await
+            .map_err(|e| format!("could not open disk image: {e}"))?;
+        let current_size = f.metadata().await
+            .map_err(|e| format!("could not stat disk image: {e}"))?.len();
+        f.set_len(current_size + 15 * 1024 * 1024 * 1024).await
+            .map_err(|e| format!("could not expand disk image: {e}"))?;
+
+        Ok(())
+    }.await;
+
+    // Best-effort cleanup of intermediates; on failure also drop any partial
+    // disk image so it isn't later misread as "Ready".
+    tokio::fs::remove_file(&tarball_path).await.ok();
+    tokio::fs::remove_file(&checkfile_path).await.ok();
+    if let Err(e) = result {
+        eprintln!("image download failed: {e}");
+        tokio::fs::remove_file(&raw_path).await.ok();
+    }
 }
 
 #[derive(PartialEq, Debug, Clone)]
@@ -270,9 +395,7 @@ struct VM {
 }
 
 fn load_vms() -> Vec<VM> {
-    let vms_dir = env::current_dir()
-        .expect("cwd to be set")
-        .join(Path::new(".bubbles/vms"));
+    let vms_dir = get_data_dir().join("vms");
     fs::create_dir_all(&vms_dir).expect("directory to exist or be created");
     let mut vms: Vec<VM> = vec![];
     for dir in fs::read_dir(vms_dir).expect("to exist") {
@@ -291,14 +414,9 @@ fn load_vms() -> Vec<VM> {
 
 async fn create_vm(name: String) {
     println!("starting copy");
-    let vm_dir_path = &env::current_dir()
-        .expect("to be set")
-        .join(".bubbles/vms")
-        .join(&name);
-    tokio::fs::create_dir_all(vm_dir_path).await.expect("directories to be created");
-    let image_base_path = env::current_dir()
-        .expect("to be set")
-        .join(".bubbles/images/debian-13");
+    let vm_dir_path = get_data_dir().join("vms").join(&name);
+    tokio::fs::create_dir_all(&vm_dir_path).await.expect("directories to be created");
+    let image_base_path = get_data_dir().join("images/debian-13");
     let image_disk_path = image_base_path.join("disk.img");
     let image_linuz_path = image_base_path.join("vmlinuz");
     let image_initrd_path = image_base_path.join("initrd.img");
@@ -399,9 +517,7 @@ impl AsyncFactoryComponent for VmEntry {
     }
     async fn update(&mut self, msg: Self::Input, sender: AsyncFactorySender<Self>) {
         let vm_name: String = self.value.name.clone();
-        let image_base_path = env::current_dir()
-            .expect("to be set")
-            .join(".bubbles/vms").join(vm_name.clone());
+        let image_base_path = get_data_dir().join("vms").join(vm_name.clone());
         let vsock_socket_path = image_base_path.join("vsock");
         match msg {
             VmMsg::OpenSettings(_index) => {
@@ -412,7 +528,7 @@ impl AsyncFactoryComponent for VmEntry {
                     VMStatus::Running => {
                         sender.output(VmStateUpdate::Update(index, VMStatus::InFlux)).unwrap();
                         relm4::spawn_local(async move {
-                            request_shutdown(OsStr::new(&vsock_socket_path)).await;
+                            request_shutdown(&vsock_socket_path).await;
                         });
                     },
                     VMStatus::InFlux => {},
@@ -425,88 +541,107 @@ impl AsyncFactoryComponent for VmEntry {
                             let image_disk_path = image_base_path.join("disk.img");
                             let image_linuz_path = image_base_path.join("vmlinuz");
                             let image_initrd_path = image_base_path.join("initrd.img");
-                            let _ = tokio::fs::remove_file(&crosvm_socket_path).await;
+                             let _ = tokio::fs::remove_file(&crosvm_socket_path).await;
                             let _ = tokio::fs::remove_file(&vsock_socket_path).await;
+                            let _ = tokio::fs::remove_file(&passt_socket_path).await;
+                            let mut passt_repair_path = passt_socket_path.clone().into_os_string();
+                            passt_repair_path.push(".repair");
+                            let _ = tokio::fs::remove_file(PathBuf::from(passt_repair_path)).await;
+
+                            let socat_bin: OsString = if is_flatpak() {
+                                flatpak_host_bin("socat").into_os_string()
+                            } else {
+                                OsString::from("socat")
+                            };
+                            let socat_unix = format!("UNIX-LISTEN:{},fork", vsock_socket_path.to_str().expect("string"));
+                            let socat_vsock = format!("VSOCK-CONNECT:{}:11111", index.current_index() + 10);
+                            let socat_host_args = make_host_args(&[
+                                socat_bin.as_os_str(),
+                                OsStr::new(&socat_unix),
+                                OsStr::new(&socat_vsock),
+                            ]);
+                            let socat_host_args_ref: Vec<&OsStr> = socat_host_args.iter().map(OsString::as_os_str).collect();
                             let socat_process = gtk::gio::Subprocess::newv(
-                                &[
-                                    OsStr::new(Path::new(&env::var("HOME").expect("HOME var to be set")).join("bubbles/socat").as_os_str()),
-                                    OsStr::new(&format!("UNIX-LISTEN:{},fork", vsock_socket_path.to_str().expect("string"))),
-                                    OsStr::new(&format!("VSOCK-CONNECT:{}:11111", index.current_index() + 10)),
-                                ],
+                                &socat_host_args_ref,
                                 SubprocessFlags::empty()
                             ).expect("start of socat process");
 
-                            // Build passt args
-                            let mut passt_args: Vec<String> = vec![
-                                Path::new(&env::var("HOME").expect("HOME var to be set")).join("bubbles/passt").to_str().expect("string").into(),
-                                "-f".into(),
-                                "--vhost-user".into(),
-                                "--socket".into(),
-                                passt_socket_path.to_str().expect("string").into(),
+                            let passt_bin: OsString = if is_flatpak() {
+                                flatpak_host_bin("passt").into_os_string()
+                            } else {
+                                OsString::from("passt")
+                            };
+                            let mut passt_args: Vec<&OsStr> = vec![
+                                passt_bin.as_os_str(),
+                                OsStr::new("-f"),
+                                OsStr::new("--vhost-user"),
+                                OsStr::new("--socket"),
+                                passt_socket_path.as_os_str(),
                             ];
                             let ports_joined = config.tcp_ports.join(",");
                             if !ports_joined.is_empty() {
-                                passt_args.push("--tcp-ports".into());
-                                passt_args.push(ports_joined);
+                                passt_args.push(OsStr::new("--tcp-ports"));
+                                passt_args.push(OsStr::new(&ports_joined));
                             }
                             if config.map_host_loopback {
-                                passt_args.push("--map-host-loopback".into());
-                                passt_args.push("169.254.0.1".into());
+                                passt_args.push(OsStr::new("--map-host-loopback"));
+                                passt_args.push(OsStr::new("169.254.0.1"));
                             }
-                            let passt_args_os: Vec<&OsStr> = passt_args.iter().map(|s| OsStr::new(s.as_str())).collect();
+                            let passt_host_args = make_host_args(&passt_args);
+                            let passt_host_args_ref: Vec<&OsStr> = passt_host_args.iter().map(OsString::as_os_str).collect();
                             let passt_process = gtk::gio::Subprocess::newv(
-                                &passt_args_os,
+                                &passt_host_args_ref,
                                 SubprocessFlags::empty()
                             ).expect("start of passt process");
-                            wait_until_exists(passt_socket_path.as_os_str()).await;
 
-                            // Build crosvm args
+                            wait_until_exists(&passt_socket_path).await;
+
+                            let crosvm_bin: OsString = if is_flatpak() {
+                                flatpak_host_bin("crosvm").into_os_string()
+                            } else {
+                                OsString::from("crosvm")
+                            };
+                            let wayland_sock = wayland_sock_path();
+                            let vsock_cid = format!("{}", index.current_index() + 10);
+                            let passt_socket_str = format!("net,socket={}", passt_socket_path.to_str().expect("string"));
                             let cpus_str = format!("num-cores={}", config.cpus);
                             let ram_str = format!("{}", config.ram_mb);
-                            let vsock_str = format!("{}", index.current_index() + 10);
-                            let wayland_path = Path::new(&env::var("XDG_RUNTIME_DIR").expect("XDG var to be set"))
-                                .join(env::var("WAYLAND_DISPLAY").expect("WAYLAND_DISPLAY var to be set"));
-                            let vhost_net_str = format!("net,socket={}", passt_socket_path.to_str().expect("string"));
-                            let crosvm_bin = Path::new(&env::var("HOME").expect("HOME var to be set")).join("bubbles/crosvm");
-
-                            let mut crosvm_args: Vec<Box<dyn AsRef<OsStr>>> = vec![
-                                Box::new(crosvm_bin.clone()),
-                                Box::new("run".to_string()),
-                                Box::new("--name".to_string()),
-                                Box::new(vm_name.clone()),
-                                Box::new("--cpus".to_string()),
-                                Box::new(cpus_str),
-                                Box::new("-m".to_string()),
-                                Box::new(ram_str),
-                                Box::new("--rwdisk".to_string()),
-                                Box::new(image_disk_path.clone()),
-                                Box::new("--initrd".to_string()),
-                                Box::new(image_initrd_path.clone()),
-                                Box::new("--socket".to_string()),
-                                Box::new(crosvm_socket_path.clone()),
-                                Box::new("--vsock".to_string()),
-                                Box::new(vsock_str),
-                                Box::new("--gpu".to_string()),
-                                Box::new("context-types=cross-domain,displays=[]".to_string()),
-                                Box::new("--wayland-sock".to_string()),
-                                Box::new(wayland_path),
-                                Box::new("--vhost-user".to_string()),
-                                Box::new(vhost_net_str),
-                                Box::new("-p".to_string()),
-                                Box::new("root=/dev/vda2".to_string()),
-                            ];
-
-                            crosvm_args.push(Box::new("-p".to_string()));
-                            crosvm_args.push(Box::new(format!("systemd.hostname={}", vm_name)));
-
-                            crosvm_args.push(Box::new(image_linuz_path.clone()));
-
-                            let crosvm_args_os: Vec<&OsStr> = crosvm_args.iter().map(|s| (*s).as_ref().as_ref()).collect();
+                            let crosvm_host_args = make_host_args(&[
+                                crosvm_bin.as_os_str(),
+                                OsStr::new("run"),
+                                OsStr::new("--name"),
+                                OsStr::new(&vm_name),
+                                OsStr::new("--cpus"),
+                                OsStr::new(&cpus_str),
+                                OsStr::new("-m"),
+                                OsStr::new(&ram_str),
+                                OsStr::new("--rwdisk"),
+                                image_disk_path.as_os_str(),
+                                OsStr::new("--initrd"),
+                                image_initrd_path.as_os_str(),
+                                OsStr::new("--socket"),
+                                crosvm_socket_path.as_os_str(),
+                                OsStr::new("--vsock"),
+                                OsStr::new(&vsock_cid),
+                                OsStr::new("--gpu"),
+                                OsStr::new("context-types=cross-domain,displays=[]"),
+                                OsStr::new("--wayland-sock"),
+                                wayland_sock.as_os_str(),
+                                OsStr::new("--vhost-user"),
+                                OsStr::new(&passt_socket_str),
+                                OsStr::new("-p"),
+                                OsStr::new("root=/dev/vda2"),
+                                OsStr::new("-p"),
+                                OsStr::new(&format!("systemd.hostname={}", vm_name)),
+                                image_linuz_path.as_os_str(),
+                            ]);
+                            let crosvm_host_args_ref: Vec<&OsStr> = crosvm_host_args.iter().map(OsString::as_os_str).collect();
                             let crosvm_process = gtk::gio::Subprocess::newv(
-                                &crosvm_args_os,
+                                &crosvm_host_args_ref,
                                 SubprocessFlags::empty()
                             ).expect("start of process");
-                            wait_until_ready(vsock_socket_path.as_os_str()).await;
+
+                            wait_until_ready(&vsock_socket_path).await;
                             sender.output(VmStateUpdate::Update(index.clone(), VMStatus::Running)).unwrap();
                             crosvm_process.wait_future().await.expect("vm to stop");
                             socat_process.send_signal(SIGTERM); // Marker: Incompatible with Windows
@@ -520,7 +655,7 @@ impl AsyncFactoryComponent for VmEntry {
             },
             VmMsg::StartTerminal(_index) => {
                 relm4::spawn_local(async move {
-                    request_terminal(OsStr::new(&vsock_socket_path)).await;
+                    request_terminal(&vsock_socket_path).await;
                 });
             }
         }
@@ -724,10 +859,7 @@ impl SimpleComponent for App {
             AppMsg::DownloadImage => {
                 self.image_status = ImageStatus::Downloading;
                 relm4::spawn_local(async move {
-                    gtk::gio::Subprocess::newv(
-                        &[OsStr::new("scripts/download.bash")],
-                        SubprocessFlags::empty()
-                    ).expect("download").wait_future().await.expect("download to succeed");
+                    download_image().await;
                     sender.input(AppMsg::FinishImageDownload);
                 });
             }
@@ -742,10 +874,7 @@ impl SimpleComponent for App {
                 self.settings_dialog.widgets().dialog.present(Some(&self.root));
             }
             AppMsg::DeleteBubble(name) => {
-                let vm_dir = env::current_dir()
-                    .expect("cwd to be set")
-                    .join(".bubbles/vms")
-                    .join(&name);
+                let vm_dir = get_data_dir().join("vms").join(&name);
                 let _ = fs::remove_dir_all(&vm_dir);
                 let mut guard = self.vms.guard();
                 let mut index = 0;
@@ -775,6 +904,6 @@ impl SimpleComponent for App {
 }
 
 fn main() {
-    let app = RelmApp::new("bubbles");
+    let app = RelmApp::new("de.gonicus.Bubbles");
     app.run::<App>(());
 }

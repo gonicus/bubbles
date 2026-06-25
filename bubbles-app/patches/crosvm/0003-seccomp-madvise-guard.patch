@@ -1,0 +1,39 @@
+diff --git a/jail/seccomp/x86_64/common_device.policy b/jail/seccomp/x86_64/common_device.policy
+index 66474e8ce..ac4d3e9e7 100644
+--- a/jail/seccomp/x86_64/common_device.policy
++++ b/jail/seccomp/x86_64/common_device.policy
+@@ -35,7 +35,7 @@ io_uring_register: 1
+ io_uring_enter: 1
+ kill: 1
+ lseek: 1
+-madvise: arg2 == MADV_DONTNEED || arg2 == MADV_DONTDUMP || arg2 == MADV_REMOVE || arg2 == MADV_MERGEABLE || arg2 == MADV_FREE || arg2 == MADV_NOHUGEPAGE
++madvise: arg2 == MADV_GUARD_INSTALL || arg2 == MADV_GUARD_REMOVE || arg2 == MADV_DONTNEED || arg2 == MADV_DONTDUMP || arg2 == MADV_REMOVE || arg2 == MADV_MERGEABLE || arg2 == MADV_FREE || arg2 == MADV_NOHUGEPAGE
+ membarrier: 1
+ memfd_create: 1
+ mmap: arg2 in ~PROT_EXEC
+diff --git a/jail/seccomp/x86_64/constants.json b/jail/seccomp/x86_64/constants.json
+index efbe66b58..ac25c379a 100644
+--- a/jail/seccomp/x86_64/constants.json
++++ b/jail/seccomp/x86_64/constants.json
+@@ -990,6 +990,8 @@
+     "LO_KEY_SIZE": 32,
+     "LO_NAME_SIZE": 64,
+     "LSMT_ROOT": -1,
++    "MADV_GUARD_INSTALL": 102,
++    "MADV_GUARD_REMOVE": 103,
+     "MADV_COLD": 20,
+     "MADV_COLLAPSE": 25,
+     "MADV_DODUMP": 17,
+diff --git a/jail/seccomp/x86_64/gpu_common.policy b/jail/seccomp/x86_64/gpu_common.policy
+index 470265099..c87148a88 100644
+--- a/jail/seccomp/x86_64/gpu_common.policy
++++ b/jail/seccomp/x86_64/gpu_common.policy
+@@ -27,7 +27,7 @@ io_uring_setup: 1
+ io_uring_register: 1
+ io_uring_enter: 1
+ kill: 1
+-madvise: arg2 == MADV_DONTNEED || arg2 == MADV_DONTDUMP || arg2 == MADV_REMOVE || arg2 == MADV_MERGEABLE || arg2 == MADV_FREE
++madvise: arg2 == MADV_GUARD_INSTALL || arg2 == MADV_GUARD_REMOVE || arg2 == MADV_DONTNEED || arg2 == MADV_DONTDUMP || arg2 == MADV_REMOVE || arg2 == MADV_MERGEABLE || arg2 == MADV_FREE
+ membarrier: 1
+ # memfd_create is used for sharing memory with wayland.
+ # For normal use case, we allow arg1 == MFD_CLOEXEC|MFD_ALLOW_SEALING, with or without MFD_NOEXEC_SEAL.

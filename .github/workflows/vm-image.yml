@@ -2,10 +2,8 @@ name: CI
 
 on:
   push:
-    branches: [ "main" ]
-    paths:
-    - '.github/workflows/vm-image.yml'
-    - 'bubbles-agent/**'
+    tags:
+    - 'vm-image-*'
 
 jobs:
   build-agent:
@@ -75,8 +73,7 @@ jobs:
     runs-on: ubuntu-latest
 
     permissions:
-      contents: read
-      packages: write
+      contents: write
     steps:
       - uses: actions/checkout@v5.0.0
         with:
@@ -311,7 +308,6 @@ jobs:
           merge-multiple: true
       - run: |
           nix-shell -p distrobuilder --command 'ln -s $(which distrobuilder) distrobuilder'
-          nix-shell -p oras --command 'ln -s $(which oras) oras'
           nix-shell -p home-manager --command 'which home-manager > home-manager-bin'
           nix-store --export $(nix-store --query -R "$(cat home-manager-bin)") > home-manager-export.nar
           ls -lR usrlocalbin
@@ -321,15 +317,24 @@ jobs:
           docker run -v $PWD:/disk debian:trixie sh -c '
             set -e
             apt-get update
-            apt-get install -y guestfs-tools oras
+            apt-get install -y guestfs-tools qemu-utils
             cd /disk
             virt-get-kernel -a disk.qcow2
             mv vmlinuz* vmlinuz
             mv initrd.img* initrd.img
+            # Convert to raw here so the app needs neither oras nor qemu-img.
+            qemu-img convert -f qcow2 -O raw disk.qcow2 disk.img
+            rm disk.qcow2
           '
-      - env:
+          # Package the raw image + kernel + initrd as a single release asset.
+          tar czf disk.tar.gz -C debian-output disk.img vmlinuz initrd.img
+          sha256sum disk.tar.gz | tee disk.tar.gz.sha256
+      - name: Publish GitHub Release
+        env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo -n "$GITHUB_TOKEN" | ./oras login -u ${{ github.actor }} --password-stdin ghcr.io
-          cd debian-output
-          ../oras push ghcr.io/${{ github.repository }}/vm-image:${{ github.sha }} vmlinuz:application/vnd.bubbles.img.v1 initrd.img:application/vnd.bubbles.img.v1 disk.qcow2:application/vnd.bubbles.img.v1
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            disk.tar.gz disk.tar.gz.sha256
