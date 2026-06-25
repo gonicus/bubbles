@@ -1,0 +1,860 @@
+commit 38f3c9a5d74e919070f5b8c6929e30fb66726e92
+Author: Joshua Mühlfort <muehlfort@gonicus.de>
+Date:   Tue Jun 30 12:58:02 2026 +0000
+
+    Revert "devices: Exit VM properly on vhost-user backend disconnection"
+    
+    This reverts commit 1656a1f68296baa4313b4b46e23a6c975caa7cc9.
+
+diff --git a/base/src/lib.rs b/base/src/lib.rs
+index 3fe243ea4..455992052 100644
+--- a/base/src/lib.rs
++++ b/base/src/lib.rs
+@@ -222,7 +222,6 @@ use serde::Serialize;
+ pub enum VmEventType {
+     Exit,
+     Reset,
+-    DeviceCrashed,
+     Crash,
+     Panic(u8),
+     WatchdogReset,
+diff --git a/devices/src/virtio/vhost_user_backend/handler.rs b/devices/src/virtio/vhost_user_backend/handler.rs
+index d872dc362..52b3ad377 100644
+--- a/devices/src/virtio/vhost_user_backend/handler.rs
++++ b/devices/src/virtio/vhost_user_backend/handler.rs
+@@ -1142,21 +1142,14 @@ mod tests {
+ 
+         let (ready_tx, ready_rx) = channel();
+         let (shutdown_tx, shutdown_rx) = channel();
+-        let (vm_evt_wrtube, _vm_evt_rdtube) = base::Tube::directional_pair().unwrap();
+ 
+         std::thread::spawn(move || {
+             // VMM side
+             ready_rx.recv().unwrap(); // Ensure the device is ready.
+ 
+-            let mut vmm_device = VhostUserFrontend::new(
+-                DeviceType::Console,
+-                0,
+-                client_connection,
+-                vm_evt_wrtube,
+-                None,
+-                None,
+-            )
+-            .unwrap();
++            let mut vmm_device =
++                VhostUserFrontend::new(DeviceType::Console, 0, client_connection, None, None)
++                    .unwrap();
+ 
+             println!("read_config");
+             let mut config = FakeConfig::new_zeroed();
+diff --git a/devices/src/virtio/vhost_user_frontend/mod.rs b/devices/src/virtio/vhost_user_frontend/mod.rs
+index afca21c2c..49bf03fdc 100644
+--- a/devices/src/virtio/vhost_user_frontend/mod.rs
++++ b/devices/src/virtio/vhost_user_frontend/mod.rs
+@@ -25,7 +25,6 @@ use base::Event;
+ use base::RawDescriptor;
+ use base::ReadNotifier;
+ use base::SafeDescriptor;
+-use base::SendTube;
+ use base::WorkerThread;
+ use snapshot::AnySnapshot;
+ use vm_memory::GuestMemory;
+@@ -55,7 +54,7 @@ use crate::PciAddress;
+ 
+ pub struct VhostUserFrontend {
+     device_type: DeviceType,
+-    worker_thread: Option<WorkerThread<(Option<BackendReqHandler>, SendTube)>>,
++    worker_thread: Option<WorkerThread<Option<BackendReqHandler>>>,
+ 
+     backend_client: BackendClient,
+     avail_features: u64,
+@@ -72,7 +71,6 @@ pub struct VhostUserFrontend {
+     queue_sizes: Vec<u16>,
+     expose_shmem_descriptors_with_viommu: bool,
+     pci_address: Option<PciAddress>,
+-    vm_evt_wrtube: SendTube,
+ 
+     // Queues that have been sent to the backend. Always `Some` when active and not asleep. Saved
+     // for use in `virtio_sleep`. Since the backend is managing them, the local state of the queue
+@@ -105,7 +103,6 @@ impl VhostUserFrontend {
+         device_type: DeviceType,
+         mut base_features: u64,
+         connection: vmm_vhost::Connection<vmm_vhost::FrontendReq>,
+-        vm_evt_wrtube: SendTube,
+         max_queue_size: Option<u16>,
+         pci_address: Option<PciAddress>,
+     ) -> Result<VhostUserFrontend> {
+@@ -228,7 +225,6 @@ impl VhostUserFrontend {
+             queue_sizes,
+             expose_shmem_descriptors_with_viommu,
+             pci_address,
+-            vm_evt_wrtube,
+             sent_queues: None,
+         })
+     }
+@@ -346,11 +342,6 @@ impl VhostUserFrontend {
+             SafeDescriptor::try_from(self.backend_client.get_close_notifier())
+                 .expect("failed to get backend close notifier");
+ 
+-        let vm_evt_wrtube = self
+-            .vm_evt_wrtube
+-            .try_clone()
+-            .expect("failed to clone vm_evt_wrtube");
+-
+         self.worker_thread = Some(WorkerThread::start(label.clone(), move |kill_evt| {
+             let mut worker = Worker {
+                 kill_evt,
+@@ -360,17 +351,11 @@ impl VhostUserFrontend {
+                 #[cfg(windows)]
+                 backend_client_close_notifier,
+             };
+-            if let Err(e) = worker
++            worker
+                 .run(interrupt)
+                 .with_context(|| format!("{label}: vhost_user_frontend worker failed"))
+-            {
+-                error!("vhost-user worker thread exited with an error: {:#}", e);
+-
+-                if let Err(e) = vm_evt_wrtube.send(&base::VmEventType::DeviceCrashed) {
+-                    error!("failed to send crash event: {}", e);
+-                }
+-            }
+-            (worker.backend_req_handler, vm_evt_wrtube)
++                .unwrap();
++            worker.backend_req_handler
+         }));
+     }
+ }
+@@ -497,9 +482,7 @@ impl VirtioDevice for VhostUserFrontend {
+         }
+ 
+         if let Some(w) = self.worker_thread.take() {
+-            let (backend_req_handler, vm_evt_wrtube) = w.stop();
+-            self.backend_req_handler = backend_req_handler;
+-            self.vm_evt_wrtube = vm_evt_wrtube;
++            self.backend_req_handler = w.stop();
+         }
+ 
+         self.sent_set_features = false;
+@@ -593,9 +576,7 @@ impl VirtioDevice for VhostUserFrontend {
+         }
+ 
+         if let Some(w) = self.worker_thread.take() {
+-            let (backend_req_handler, vm_evt_wrtube) = w.stop();
+-            self.backend_req_handler = backend_req_handler;
+-            self.vm_evt_wrtube = vm_evt_wrtube;
++            self.backend_req_handler = w.stop();
+         }
+ 
+         Ok(Some(queues))
+diff --git a/src/crosvm/sys/linux.rs b/src/crosvm/sys/linux.rs
+index 8a1daadc1..3ce852d63 100644
+--- a/src/crosvm/sys/linux.rs
++++ b/src/crosvm/sys/linux.rs
+@@ -901,7 +901,6 @@ fn create_virtio_devices(
+             cfg.protection_type,
+             opt,
+             cfg.vhost_user_connect_timeout_ms,
+-            vm_evt_wrtube.try_clone()?,
+         )?);
+     }
+ 
+@@ -4208,10 +4207,6 @@ fn run_control<V: VmArch + 'static, Vcpu: VcpuArch + 'static>(
+                                 info!("vcpu crashed");
+                                 exit_state = ExitState::Crash;
+                             }
+-                            VmEventType::DeviceCrashed => {
+-                                info!("device crashed");
+-                                exit_state = ExitState::Crash;
+-                            }
+                             VmEventType::Panic(panic_code) => {
+                                 pvpanic_code = PvPanicCode::from_u8(panic_code);
+                                 info!("Guest reported panic [Code: {}]", pvpanic_code);
+diff --git a/src/crosvm/sys/linux/device_helpers.rs b/src/crosvm/sys/linux/device_helpers.rs
+index 7893b7886..21286492d 100644
+--- a/src/crosvm/sys/linux/device_helpers.rs
++++ b/src/crosvm/sys/linux/device_helpers.rs
+@@ -437,7 +437,6 @@ pub fn create_vhost_user_frontend(
+     protection_type: ProtectionType,
+     opt: &VhostUserFrontendOption,
+     connect_timeout_ms: Option<u64>,
+-    vm_evt_wrtube: base::SendTube,
+ ) -> DeviceResult {
+     let connection = if let Some(socket_fd) = safe_descriptor_from_path(&opt.socket)? {
+         socket_fd
+@@ -450,7 +449,6 @@ pub fn create_vhost_user_frontend(
+         opt.type_,
+         virtio::base_features(protection_type),
+         connection,
+-        vm_evt_wrtube,
+         opt.max_queue_size,
+         opt.pci_address,
+     )
+diff --git a/src/sys/windows.rs b/src/sys/windows.rs
+index 5c80c5ade..43fca3c03 100644
+--- a/src/sys/windows.rs
++++ b/src/sys/windows.rs
+@@ -291,13 +291,11 @@ type DeviceResult<T = VirtioDeviceStub> = Result<T>;
+ fn create_vhost_user_block_device(
+     cfg: &Config,
+     connection: Connection<FrontendReq>,
+-    vm_evt_wrtube: SendTube,
+ ) -> DeviceResult {
+     let dev = virtio::VhostUserFrontend::new(
+         virtio::DeviceType::Block,
+         virtio::base_features(cfg.protection_type),
+         connection,
+-        vm_evt_wrtube,
+         None,
+         None,
+     )
+@@ -334,13 +332,11 @@ fn create_block_device(cfg: &Config, disk: &DiskOption, disk_device_tube: Tube)
+ fn create_vhost_user_gpu_device(
+     base_features: u64,
+     connection: Connection<FrontendReq>,
+-    vm_evt_wrtube: SendTube,
+ ) -> DeviceResult {
+     let dev = virtio::VhostUserFrontend::new(
+         virtio::DeviceType::Gpu,
+         base_features,
+         connection,
+-        vm_evt_wrtube,
+         None,
+         None,
+     )
+@@ -359,13 +355,11 @@ fn create_vhost_user_gpu_device(
+ fn create_vhost_user_snd_device(
+     base_features: u64,
+     connection: Connection<FrontendReq>,
+-    vm_evt_wrtube: SendTube,
+ ) -> DeviceResult {
+     let dev = virtio::VhostUserFrontend::new(
+         virtio::DeviceType::Sound,
+         base_features,
+         connection,
+-        vm_evt_wrtube,
+         None,
+         None,
+     )
+@@ -415,24 +409,14 @@ fn create_mouse_device(cfg: &Config, event_pipe: StreamChannel, idx: u32) -> Dev
+ }
+ 
+ #[cfg(feature = "slirp")]
+-fn create_vhost_user_net_device(
+-    cfg: &Config,
+-    connection: Connection<FrontendReq>,
+-    vm_evt_wrtube: SendTube,
+-) -> DeviceResult {
++fn create_vhost_user_net_device(cfg: &Config, connection: Connection<FrontendReq>) -> DeviceResult {
+     let features = virtio::base_features(cfg.protection_type);
+-    let dev = virtio::VhostUserFrontend::new(
+-        virtio::DeviceType::Net,
+-        features,
+-        connection,
+-        vm_evt_wrtube,
+-        None,
+-        None,
+-    )
+-    .exit_context(
+-        Exit::VhostUserNetDeviceNew,
+-        "failed to set up vhost-user net device",
+-    )?;
++    let dev =
++        virtio::VhostUserFrontend::new(virtio::DeviceType::Net, features, connection, None, None)
++            .exit_context(
++            Exit::VhostUserNetDeviceNew,
++            "failed to set up vhost-user net device",
++        )?;
+ 
+     Ok(VirtioDeviceStub {
+         dev: Box::new(dev),
+@@ -543,11 +527,7 @@ fn create_virtio_devices(
+         for _disk in &cfg.disks {
+             let disk_device_tube = cfg.block_vhost_user_tube.remove(0);
+             let connection = Connection::<FrontendReq>::from(disk_device_tube);
+-            devs.push(create_vhost_user_block_device(
+-                cfg,
+-                connection,
+-                vm_evt_wrtube.try_clone()?,
+-            )?);
++            devs.push(create_vhost_user_block_device(cfg, connection)?);
+         }
+     }
+ 
+@@ -568,7 +548,6 @@ fn create_virtio_devices(
+                 cfg,
+                 &mut snd_split_cfg,
+                 control_tubes,
+-                vm_evt_wrtube.try_clone()?,
+             )?);
+             if let Some(vmm_config) = snd_split_cfg.vmm_config {
+                 let initial_audio_session_state = InitialAudioSessionState {
+@@ -590,11 +569,7 @@ fn create_virtio_devices(
+     #[cfg(feature = "slirp")]
+     if let Some(net_vhost_user_tube) = cfg.net_vhost_user_tube.take() {
+         let connection = Connection::<FrontendReq>::from(net_vhost_user_tube);
+-        devs.push(create_vhost_user_net_device(
+-            cfg,
+-            connection,
+-            vm_evt_wrtube.try_clone()?,
+-        )?);
++        devs.push(create_vhost_user_net_device(cfg, connection)?);
+     }
+ 
+     #[cfg(feature = "balloon")]
+@@ -656,7 +631,6 @@ fn create_virtio_devices(
+             event_devices,
+             &mut wndproc_thread,
+             control_tubes,
+-            vm_evt_wrtube.try_clone()?,
+         )?);
+     }
+ 
+@@ -745,7 +719,6 @@ fn create_virtio_gpu_device(
+     event_devices: Option<Vec<EventDevice>>,
+     wndproc_thread: &mut Option<WindowProcedureThread>,
+     #[allow(clippy::ptr_arg)] control_tubes: &mut Vec<TaggedControlTube>,
+-    vm_evt_wrtube: SendTube,
+ ) -> DeviceResult<VirtioDeviceStub> {
+     let resource_bridges = Vec::<Tube>::new();
+ 
+@@ -772,12 +745,8 @@ fn create_virtio_gpu_device(
+         .expect("GPU VMM vhost-user tube should be set");
+     let connection = Connection::<FrontendReq>::from(gpu_device_tube);
+ 
+-    create_vhost_user_gpu_device(
+-        virtio::base_features(cfg.protection_type),
+-        connection,
+-        vm_evt_wrtube,
+-    )
+-    .context("create vhost-user GPU device")
++    create_vhost_user_gpu_device(virtio::base_features(cfg.protection_type), connection)
++        .context("create vhost-user GPU device")
+ }
+ 
+ #[cfg(feature = "audio")]
+@@ -785,7 +754,6 @@ fn create_virtio_snd_device(
+     cfg: &mut Config,
+     snd_split_config: &mut SndSplitConfig,
+     #[allow(clippy::ptr_arg)] control_tubes: &mut Vec<TaggedControlTube>,
+-    vm_evt_wrtube: SendTube,
+ ) -> DeviceResult<VirtioDeviceStub> {
+     let snd_vmm_config = snd_split_config
+         .vmm_config
+@@ -805,12 +773,8 @@ fn create_virtio_snd_device(
+         .expect("Snd VMM vhost-user tube should be set");
+     let connection = Connection::<FrontendReq>::from(snd_device_tube);
+ 
+-    create_vhost_user_snd_device(
+-        virtio::base_features(cfg.protection_type),
+-        connection,
+-        vm_evt_wrtube,
+-    )
+-    .context("create vhost-user SND device")
++    create_vhost_user_snd_device(virtio::base_features(cfg.protection_type), connection)
++        .context("create vhost-user SND device")
+ }
+ 
+ fn create_devices(
+@@ -980,10 +944,6 @@ fn handle_readable_event<V: VmArch + 'static, Vcpu: VcpuArch + 'static>(
+                         info!("vcpu crashed");
+                         Some(ExitState::Crash)
+                     }
+-                    VmEventType::DeviceCrashed => {
+-                        info!("device crashed");
+-                        Some(ExitState::Crash)
+-                    }
+                     VmEventType::Panic(_) => {
+                         error!("got pvpanic event. this event is not expected on Windows.");
+                         None
+
+commit 32439c8c0c956fd2e42feb7aa8759e9239d9a9c7
+Author: Joshua Mühlfort <muehlfort@gonicus.de>
+Date:   Tue Jun 30 12:58:02 2026 +0000
+
+    Revert "vhost_user_frontend: clone notifier file descriptors"
+    
+    This reverts commit 2c6f23406c41af8432c1c1ba4e3605785e959ead.
+
+diff --git a/devices/src/virtio/vhost_user_frontend/mod.rs b/devices/src/virtio/vhost_user_frontend/mod.rs
+index 49bf03fdc..764a2eb5f 100644
+--- a/devices/src/virtio/vhost_user_frontend/mod.rs
++++ b/devices/src/virtio/vhost_user_frontend/mod.rs
+@@ -13,20 +13,18 @@ use std::cell::RefCell;
+ use std::collections::BTreeMap;
+ use std::io::Read;
+ use std::io::Write;
++use std::sync::Arc;
+ 
+ use anyhow::bail;
+ use anyhow::Context;
+ use base::error;
+ use base::trace;
+ use base::AsRawDescriptor;
+-#[cfg(windows)]
+-use base::CloseNotifier;
+ use base::Event;
+ use base::RawDescriptor;
+-use base::ReadNotifier;
+-use base::SafeDescriptor;
+ use base::WorkerThread;
+ use snapshot::AnySnapshot;
++use sync::Mutex;
+ use vm_memory::GuestMemory;
+ use vmm_vhost::message::VhostUserConfigFlags;
+ use vmm_vhost::message::VhostUserMigrationPhase;
+@@ -56,7 +54,7 @@ pub struct VhostUserFrontend {
+     device_type: DeviceType,
+     worker_thread: Option<WorkerThread<Option<BackendReqHandler>>>,
+ 
+-    backend_client: BackendClient,
++    backend_client: Arc<Mutex<BackendClient>>,
+     avail_features: u64,
+     acked_features: u64,
+     sent_set_features: bool,
+@@ -215,7 +213,7 @@ impl VhostUserFrontend {
+         Ok(VhostUserFrontend {
+             device_type,
+             worker_thread: None,
+-            backend_client,
++            backend_client: Arc::new(Mutex::new(backend_client)),
+             avail_features,
+             acked_features,
+             sent_set_features: false,
+@@ -242,6 +240,7 @@ impl VhostUserFrontend {
+             .collect();
+ 
+         self.backend_client
++            .lock()
+             .set_mem_table(regions.as_slice())
+             .map_err(Error::SetMemTable)?;
+ 
+@@ -256,7 +255,8 @@ impl VhostUserFrontend {
+         queue: &Queue,
+         irqfd: &Event,
+     ) -> Result<()> {
+-        self.backend_client
++        let backend_client = self.backend_client.lock();
++        backend_client
+             .set_vring_num(queue_index, queue.size())
+             .map_err(Error::SetVringNum)?;
+ 
+@@ -274,25 +274,25 @@ impl VhostUserFrontend {
+                 .map_err(Error::GetHostAddress)? as u64,
+             log_addr: None,
+         };
+-        self.backend_client
++        backend_client
+             .set_vring_addr(queue_index, &config_data)
+             .map_err(Error::SetVringAddr)?;
+ 
+-        self.backend_client
++        backend_client
+             .set_vring_base(queue_index, queue.next_avail_to_process())
+             .map_err(Error::SetVringBase)?;
+ 
+-        self.backend_client
++        backend_client
+             .set_vring_call(queue_index, irqfd)
+             .map_err(Error::SetVringCall)?;
+-        self.backend_client
++        backend_client
+             .set_vring_kick(queue_index, queue.event())
+             .map_err(Error::SetVringKick)?;
+ 
+         // Per protocol documentation, `VHOST_USER_SET_VRING_ENABLE` should be sent only when
+         // `VHOST_USER_F_PROTOCOL_FEATURES` has been negotiated.
+         if self.acked_features & 1 << VHOST_USER_F_PROTOCOL_FEATURES != 0 {
+-            self.backend_client
++            backend_client
+                 .set_vring_enable(queue_index, true)
+                 .map_err(Error::SetVringEnable)?;
+         }
+@@ -302,14 +302,15 @@ impl VhostUserFrontend {
+ 
+     /// Stops the vring for the given `queue`, returning its base index.
+     fn deactivate_vring(&self, queue_index: usize) -> Result<u16> {
++        let backend_client = self.backend_client.lock();
++
+         if self.acked_features & 1 << VHOST_USER_F_PROTOCOL_FEATURES != 0 {
+-            self.backend_client
++            backend_client
+                 .set_vring_enable(queue_index, false)
+                 .map_err(Error::SetVringEnable)?;
+         }
+ 
+-        let vring_base = self
+-            .backend_client
++        let vring_base = backend_client
+             .get_vring_base(queue_index)
+             .map_err(Error::GetVringBase)?;
+ 
+@@ -334,22 +335,14 @@ impl VhostUserFrontend {
+             handler.frontend_mut().set_interrupt(interrupt.clone());
+         }
+ 
+-        let backend_client_read_notifier =
+-            SafeDescriptor::try_from(self.backend_client.get_read_notifier())
+-                .expect("failed to get backend read notifier");
+-        #[cfg(windows)]
+-        let backend_client_close_notifier =
+-            SafeDescriptor::try_from(self.backend_client.get_close_notifier())
+-                .expect("failed to get backend close notifier");
++        let backend_client = self.backend_client.clone();
+ 
+         self.worker_thread = Some(WorkerThread::start(label.clone(), move |kill_evt| {
+             let mut worker = Worker {
+                 kill_evt,
+                 non_msix_evt,
+                 backend_req_handler,
+-                backend_client_read_notifier,
+-                #[cfg(windows)]
+-                backend_client_close_notifier,
++                backend_client,
+             };
+             worker
+                 .run(interrupt)
+@@ -386,6 +379,7 @@ impl VirtioDevice for VhostUserFrontend {
+         let features = (features & self.avail_features) | self.acked_features;
+         if let Err(e) = self
+             .backend_client
++            .lock()
+             .set_features(features)
+             .map_err(Error::SetFeatures)
+         {
+@@ -408,7 +402,7 @@ impl VirtioDevice for VhostUserFrontend {
+             );
+             return;
+         };
+-        let (_, config) = match self.backend_client.get_config(
++        let (_, config) = match self.backend_client.lock().get_config(
+             offset,
+             data_len,
+             VhostUserConfigFlags::WRITABLE,
+@@ -430,6 +424,7 @@ impl VirtioDevice for VhostUserFrontend {
+         };
+         if let Err(e) = self
+             .backend_client
++            .lock()
+             .set_config(offset, VhostUserConfigFlags::empty(), data)
+             .map_err(Error::SetConfig)
+         {
+@@ -506,6 +501,7 @@ impl VirtioDevice for VhostUserFrontend {
+         }
+         let regions = match self
+             .backend_client
++            .lock()
+             .get_shared_memory_regions()
+             .map_err(Error::ShmemRegions)
+         {
+@@ -601,11 +597,11 @@ impl VirtioDevice for VhostUserFrontend {
+         {
+             bail!("snapshot requires VHOST_USER_PROTOCOL_F_DEVICE_STATE");
+         }
++        let backend_client = self.backend_client.lock();
+         // Send the backend an FD to write the device state to. If it gives us an FD back, then
+         // we need to read from that instead.
+         let (mut r, w) = new_pipe_pair()?;
+-        let backend_r = self
+-            .backend_client
++        let backend_r = backend_client
+             .set_device_state_fd(
+                 VhostUserTransferDirection::Save,
+                 VhostUserMigrationPhase::Stopped,
+@@ -624,7 +620,7 @@ impl VirtioDevice for VhostUserFrontend {
+         }
+         .context("failed to read device state")?;
+         // Call `check_device_state` to ensure the data transfer was successful.
+-        self.backend_client
++        backend_client
+             .check_device_state()
+             .context("failed to transfer device state")?;
+         Ok(AnySnapshot::to_any(snapshot_bytes).map_err(Error::SliceToSerdeValue)?)
+@@ -643,12 +639,12 @@ impl VirtioDevice for VhostUserFrontend {
+             bail!("restore requires VHOST_USER_PROTOCOL_F_DEVICE_STATE");
+         }
+ 
++        let backend_client = self.backend_client.lock();
+         let data_bytes: Vec<u8> = AnySnapshot::from_any(data).map_err(Error::SerdeValueToSlice)?;
+         // Send the backend an FD to read the device state from. If it gives us an FD back,
+         // then we need to write to that instead.
+         let (r, w) = new_pipe_pair()?;
+-        let backend_w = self
+-            .backend_client
++        let backend_w = backend_client
+             .set_device_state_fd(
+                 VhostUserTransferDirection::Load,
+                 VhostUserMigrationPhase::Stopped,
+@@ -670,7 +666,7 @@ impl VirtioDevice for VhostUserFrontend {
+             .context("failed to write device state")?;
+         }
+         // Call `check_device_state` to ensure the data transfer was successful.
+-        self.backend_client
++        backend_client
+             .check_device_state()
+             .context("failed to transfer device state")?;
+         Ok(())
+diff --git a/devices/src/virtio/vhost_user_frontend/worker.rs b/devices/src/virtio/vhost_user_frontend/worker.rs
+index 3669f79a1..57c5dd398 100644
+--- a/devices/src/virtio/vhost_user_frontend/worker.rs
++++ b/devices/src/virtio/vhost_user_frontend/worker.rs
+@@ -2,6 +2,8 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++use std::sync::Arc;
++
+ use anyhow::bail;
+ use anyhow::Context;
+ use base::info;
+@@ -12,8 +14,9 @@ use base::Event;
+ use base::EventToken;
+ use base::EventType;
+ use base::ReadNotifier;
+-use base::SafeDescriptor;
+ use base::WaitContext;
++use sync::Mutex;
++use vmm_vhost::BackendClient;
+ use vmm_vhost::Error as VhostError;
+ 
+ use crate::virtio::vhost_user_frontend::handler::BackendReqHandler;
+@@ -24,9 +27,7 @@ pub struct Worker {
+     pub kill_evt: Event,
+     pub non_msix_evt: Event,
+     pub backend_req_handler: Option<BackendReqHandler>,
+-    pub backend_client_read_notifier: SafeDescriptor,
+-    #[cfg(target_os = "windows")]
+-    pub backend_client_close_notifier: SafeDescriptor,
++    pub backend_client: Arc<Mutex<BackendClient>>,
+ }
+ 
+ impl Worker {
+@@ -67,7 +68,7 @@ impl Worker {
+         #[cfg(any(target_os = "android", target_os = "linux"))]
+         wait_ctx
+             .add_for_event(
+-                &self.backend_client_read_notifier,
++                self.backend_client.lock().get_read_notifier(),
+                 EventType::None,
+                 Token::BackendCloseNotify,
+             )
+@@ -75,7 +76,7 @@ impl Worker {
+         #[cfg(target_os = "windows")]
+         wait_ctx
+             .add(
+-                &self.backend_client_close_notifier,
++                self.backend_client.lock().get_close_notifier(),
+                 Token::BackendCloseNotify,
+             )
+             .context("failed to add backend client close notifier to WaitContext")?;
+
+commit e614589bd099ad9c0f12f5beeaffd06d6c78de9b
+Author: Joshua Mühlfort <muehlfort@gonicus.de>
+Date:   Tue Jun 30 12:58:02 2026 +0000
+
+    Revert "devices: vhost_user_frontend: drop unnecessary set_features"
+    
+    This reverts commit 806e91d2fa5416b3444257e42421e07b318e26d6.
+
+diff --git a/devices/src/virtio/vhost_user_backend/handler.rs b/devices/src/virtio/vhost_user_backend/handler.rs
+index 52b3ad377..8cdcf0a51 100644
+--- a/devices/src/virtio/vhost_user_backend/handler.rs
++++ b/devices/src/virtio/vhost_user_backend/handler.rs
+@@ -1231,6 +1231,7 @@ mod tests {
+         // VhostUserFrontend::new()
+         handle_request(&mut req_handler, FrontendReq::SET_OWNER).unwrap();
+         handle_request(&mut req_handler, FrontendReq::GET_FEATURES).unwrap();
++        handle_request(&mut req_handler, FrontendReq::SET_FEATURES).unwrap();
+         handle_request(&mut req_handler, FrontendReq::GET_PROTOCOL_FEATURES).unwrap();
+         handle_request(&mut req_handler, FrontendReq::SET_PROTOCOL_FEATURES).unwrap();
+         if allow_backend_req {
+@@ -1241,7 +1242,6 @@ mod tests {
+         handle_request(&mut req_handler, FrontendReq::GET_CONFIG).unwrap();
+ 
+         // VhostUserFrontend::activate()
+-        handle_request(&mut req_handler, FrontendReq::SET_FEATURES).unwrap();
+         handle_request(&mut req_handler, FrontendReq::SET_MEM_TABLE).unwrap();
+         for _ in 0..QUEUES_NUM {
+             handle_request(&mut req_handler, FrontendReq::SET_VRING_NUM).unwrap();
+diff --git a/devices/src/virtio/vhost_user_frontend/mod.rs b/devices/src/virtio/vhost_user_frontend/mod.rs
+index 764a2eb5f..81fac2050 100644
+--- a/devices/src/virtio/vhost_user_frontend/mod.rs
++++ b/devices/src/virtio/vhost_user_frontend/mod.rs
+@@ -128,6 +128,7 @@ impl VhostUserFrontend {
+         let avail_features =
+             allow_features & backend_client.get_features().map_err(Error::GetFeatures)?;
+         let mut acked_features = 0;
++        let mut sent_set_features = false;
+ 
+         let mut allow_protocol_features = VhostUserProtocolFeatures::CONFIG
+             | VhostUserProtocolFeatures::MQ
+@@ -146,14 +147,12 @@ impl VhostUserFrontend {
+ 
+         let mut protocol_features = VhostUserProtocolFeatures::empty();
+         if avail_features & 1 << VHOST_USER_F_PROTOCOL_FEATURES != 0 {
+-            // The vhost-user backend supports VHOST_USER_F_PROTOCOL_FEATURES.
+-            // Per the vhost-user protocol, the backend must support
+-            // `VHOST_USER_GET_PROTOCOL_FEATURES` and `VHOST_USER_SET_PROTOCOL_FEATURES` even
+-            // before acknowledging the feature, so we don't need to call `set_features()` yet
+-            // (and doing so before driver feature negotiation may confuse some backends),
+-            // but add it to `acked_features` so it will be included in any future
+-            // `set_features()` calls.
++            // The vhost-user backend supports VHOST_USER_F_PROTOCOL_FEATURES; enable it.
++            backend_client
++                .set_features(1 << VHOST_USER_F_PROTOCOL_FEATURES)
++                .map_err(Error::SetFeatures)?;
+             acked_features |= 1 << VHOST_USER_F_PROTOCOL_FEATURES;
++            sent_set_features = true;
+ 
+             let avail_protocol_features = backend_client
+                 .get_protocol_features()
+@@ -216,7 +215,7 @@ impl VhostUserFrontend {
+             backend_client: Arc::new(Mutex::new(backend_client)),
+             avail_features,
+             acked_features,
+-            sent_set_features: false,
++            sent_set_features,
+             protocol_features,
+             backend_req_handler,
+             shmem_region: RefCell::new(None),
+
+commit d9cc7f4b47eb9e8254845deedeaa5e024d1216de
+Author: Joshua Mühlfort <muehlfort@gonicus.de>
+Date:   Tue Jun 30 12:58:02 2026 +0000
+
+    Revert "devices: vhost-user frontend: ensure SET_FEATURES is sent at least once"
+    
+    This reverts commit ff4b721ac8b983393b0fa503000eff74ecd3de2e.
+
+diff --git a/devices/src/virtio/vhost_user_backend/handler.rs b/devices/src/virtio/vhost_user_backend/handler.rs
+index 8cdcf0a51..4c8a3def4 100644
+--- a/devices/src/virtio/vhost_user_backend/handler.rs
++++ b/devices/src/virtio/vhost_user_backend/handler.rs
+@@ -1259,7 +1259,6 @@ mod tests {
+         }
+ 
+         // VhostUserFrontend::activate()
+-        handle_request(&mut req_handler, FrontendReq::SET_FEATURES).unwrap();
+         handle_request(&mut req_handler, FrontendReq::SET_MEM_TABLE).unwrap();
+         for _ in 0..QUEUES_NUM {
+             handle_request(&mut req_handler, FrontendReq::SET_VRING_NUM).unwrap();
+diff --git a/devices/src/virtio/vhost_user_frontend/mod.rs b/devices/src/virtio/vhost_user_frontend/mod.rs
+index 81fac2050..005b4b17a 100644
+--- a/devices/src/virtio/vhost_user_frontend/mod.rs
++++ b/devices/src/virtio/vhost_user_frontend/mod.rs
+@@ -57,7 +57,6 @@ pub struct VhostUserFrontend {
+     backend_client: Arc<Mutex<BackendClient>>,
+     avail_features: u64,
+     acked_features: u64,
+-    sent_set_features: bool,
+     protocol_features: VhostUserProtocolFeatures,
+     // `backend_req_handler` is only present if the backend supports BACKEND_REQ. `worker_thread`
+     // takes ownership of `backend_req_handler` when it starts. The worker thread will always
+@@ -128,7 +127,6 @@ impl VhostUserFrontend {
+         let avail_features =
+             allow_features & backend_client.get_features().map_err(Error::GetFeatures)?;
+         let mut acked_features = 0;
+-        let mut sent_set_features = false;
+ 
+         let mut allow_protocol_features = VhostUserProtocolFeatures::CONFIG
+             | VhostUserProtocolFeatures::MQ
+@@ -152,7 +150,6 @@ impl VhostUserFrontend {
+                 .set_features(1 << VHOST_USER_F_PROTOCOL_FEATURES)
+                 .map_err(Error::SetFeatures)?;
+             acked_features |= 1 << VHOST_USER_F_PROTOCOL_FEATURES;
+-            sent_set_features = true;
+ 
+             let avail_protocol_features = backend_client
+                 .get_protocol_features()
+@@ -215,7 +212,6 @@ impl VhostUserFrontend {
+             backend_client: Arc::new(Mutex::new(backend_client)),
+             avail_features,
+             acked_features,
+-            sent_set_features,
+             protocol_features,
+             backend_req_handler,
+             shmem_region: RefCell::new(None),
+@@ -386,7 +382,6 @@ impl VirtioDevice for VhostUserFrontend {
+             return;
+         }
+         self.acked_features = features;
+-        self.sent_set_features = true;
+     }
+ 
+     fn read_config(&self, offset: u64, data: &mut [u8]) {
+@@ -437,11 +432,6 @@ impl VirtioDevice for VhostUserFrontend {
+         interrupt: Interrupt,
+         queues: BTreeMap<usize, Queue>,
+     ) -> anyhow::Result<()> {
+-        // Ensure at least one `VHOST_USER_SET_FEATURES` is sent before activation.
+-        if !self.sent_set_features {
+-            self.ack_features(self.acked_features);
+-        }
+-
+         self.set_mem_table(&mem)?;
+ 
+         let msix_config_opt = interrupt
+@@ -479,8 +469,6 @@ impl VirtioDevice for VhostUserFrontend {
+             self.backend_req_handler = w.stop();
+         }
+ 
+-        self.sent_set_features = false;
+-
+         Ok(())
+     }
+ 
+@@ -626,11 +614,6 @@ impl VirtioDevice for VhostUserFrontend {
+     }
+ 
+     fn virtio_restore(&mut self, data: AnySnapshot) -> anyhow::Result<()> {
+-        // Ensure features are negotiated before restoring.
+-        if !self.sent_set_features {
+-            self.ack_features(self.acked_features);
+-        }
+-
+         if !self
+             .protocol_features
+             .contains(VhostUserProtocolFeatures::DEVICE_STATE)
+
+commit f78de55266f86837a12c34174dc5cae425bc00e2
+Author: Joshua Mühlfort <muehlfort@gonicus.de>
+Date:   Tue Jun 30 12:58:02 2026 +0000
+
+    Revert "Roll recipe dependencies (trivial)."
+    
+    This reverts commit a96cb379acf55a75887cbba190666e7d22ff9dbf.
+
+diff --git a/infra/README.recipes.md b/infra/README.recipes.md
+index 7b4b47e8c..2b100a3a0 100644
+--- a/infra/README.recipes.md
++++ b/infra/README.recipes.md
+@@ -199,11 +199,11 @@ Recipe for uploading uprevs of the baguette image.
+ 
+ &mdash; **def [RunSteps](/infra/recipes/uprev_baguette_image.py#37)(api: RecipeApi, properties: UprevBaguetteImageProperties):**
+ 
+-[depot_tools/recipe_modules/bot_update]: https://chromium.googlesource.com/chromium/tools/depot_tools.git/+/6cd31a3b571f8b686273ebd0fcaf9cb368158984/recipes/README.recipes.md#recipe_modules-bot_update
+-[depot_tools/recipe_modules/depot_tools]: https://chromium.googlesource.com/chromium/tools/depot_tools.git/+/6cd31a3b571f8b686273ebd0fcaf9cb368158984/recipes/README.recipes.md#recipe_modules-depot_tools
+-[depot_tools/recipe_modules/gclient]: https://chromium.googlesource.com/chromium/tools/depot_tools.git/+/6cd31a3b571f8b686273ebd0fcaf9cb368158984/recipes/README.recipes.md#recipe_modules-gclient
+-[depot_tools/recipe_modules/git]: https://chromium.googlesource.com/chromium/tools/depot_tools.git/+/6cd31a3b571f8b686273ebd0fcaf9cb368158984/recipes/README.recipes.md#recipe_modules-git
+-[depot_tools/recipe_modules/gsutil]: https://chromium.googlesource.com/chromium/tools/depot_tools.git/+/6cd31a3b571f8b686273ebd0fcaf9cb368158984/recipes/README.recipes.md#recipe_modules-gsutil
++[depot_tools/recipe_modules/bot_update]: https://chromium.googlesource.com/chromium/tools/depot_tools.git/+/fc502860ed572e4b25831fd9a6f894089964d32d/recipes/README.recipes.md#recipe_modules-bot_update
++[depot_tools/recipe_modules/depot_tools]: https://chromium.googlesource.com/chromium/tools/depot_tools.git/+/fc502860ed572e4b25831fd9a6f894089964d32d/recipes/README.recipes.md#recipe_modules-depot_tools
++[depot_tools/recipe_modules/gclient]: https://chromium.googlesource.com/chromium/tools/depot_tools.git/+/fc502860ed572e4b25831fd9a6f894089964d32d/recipes/README.recipes.md#recipe_modules-gclient
++[depot_tools/recipe_modules/git]: https://chromium.googlesource.com/chromium/tools/depot_tools.git/+/fc502860ed572e4b25831fd9a6f894089964d32d/recipes/README.recipes.md#recipe_modules-git
++[depot_tools/recipe_modules/gsutil]: https://chromium.googlesource.com/chromium/tools/depot_tools.git/+/fc502860ed572e4b25831fd9a6f894089964d32d/recipes/README.recipes.md#recipe_modules-gsutil
+ [recipe_engine/recipe_modules/buildbucket]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/17a07aa09c403521b7645adb3b2981bf6f59b227/README.recipes.md#recipe_modules-buildbucket
+ [recipe_engine/recipe_modules/cipd]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/17a07aa09c403521b7645adb3b2981bf6f59b227/README.recipes.md#recipe_modules-cipd
+ [recipe_engine/recipe_modules/context]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/17a07aa09c403521b7645adb3b2981bf6f59b227/README.recipes.md#recipe_modules-context
+diff --git a/infra/config/recipes.cfg b/infra/config/recipes.cfg
+index 6d4e50878..9c9ade029 100644
+--- a/infra/config/recipes.cfg
++++ b/infra/config/recipes.cfg
+@@ -18,7 +18,7 @@
+   "deps": {
+     "depot_tools": {
+       "branch": "refs/heads/main",
+-      "revision": "6cd31a3b571f8b686273ebd0fcaf9cb368158984",
++      "revision": "fc502860ed572e4b25831fd9a6f894089964d32d",
+       "url": "https://chromium.googlesource.com/chromium/tools/depot_tools.git"
+     },
+     "recipe_engine": {

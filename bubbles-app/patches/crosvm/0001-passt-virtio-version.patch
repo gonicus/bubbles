@@ -1,0 +1,24 @@
+diff --git a/devices/src/virtio/vhost_user_frontend/mod.rs b/devices/src/virtio/vhost_user_frontend/mod.rs
+index 1f847409e..8d6b5e646 100644
+--- a/devices/src/virtio/vhost_user_frontend/mod.rs
++++ b/devices/src/virtio/vhost_user_frontend/mod.rs
+@@ -26,6 +26,7 @@ use base::RawDescriptor;
+ use base::WorkerThread;
+ use snapshot::AnySnapshot;
+ use sync::Mutex;
++use virtio_sys::virtio_config::VIRTIO_F_VERSION_1;
+ use vm_memory::GuestMemory;
+ use vmm_vhost::message::VhostUserConfigFlags;
+ use vmm_vhost::message::VhostUserMigrationPhase;
+@@ -178,9 +179,9 @@ impl VhostUserFrontend {
+         if avail_features & 1 << VHOST_USER_F_PROTOCOL_FEATURES != 0 {
+             // The vhost-user backend supports VHOST_USER_F_PROTOCOL_FEATURES; enable it.
+             backend_client
+-                .set_features(1 << VHOST_USER_F_PROTOCOL_FEATURES)
++                .set_features(1 << VHOST_USER_F_PROTOCOL_FEATURES | 1 << VIRTIO_F_VERSION_1)
+                 .map_err(Error::SetFeatures)?;
+-            acked_features |= 1 << VHOST_USER_F_PROTOCOL_FEATURES;
++            acked_features |= 1 << VHOST_USER_F_PROTOCOL_FEATURES | 1 << VIRTIO_F_VERSION_1;
+ 
+             let avail_protocol_features = backend_client
+                 .get_protocol_features()

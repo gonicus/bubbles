@@ -1,0 +1,27 @@
+diff --git a/src/crosvm/sys/linux/gpu.rs b/src/crosvm/sys/linux/gpu.rs
+index 7bb3ff7af..7eba55ee7 100644
+--- a/src/crosvm/sys/linux/gpu.rs
++++ b/src/crosvm/sys/linux/gpu.rs
+@@ -125,7 +125,6 @@ pub fn create_gpu_device(
+         gpu_params.allow_implicit_render_server_exec && !is_sandboxed;
+ 
+     let mut display_backends = vec![
+-        virtio::DisplayBackend::X(cfg.x_display.clone()),
+         virtio::DisplayBackend::Stub,
+     ];
+ 
+@@ -134,14 +133,6 @@ pub fn create_gpu_device(
+         display_backends.insert(0, virtio::DisplayBackend::Android(service_name.to_string()));
+     }
+ 
+-    // Use the unnamed socket for GPU display screens.
+-    if let Some(socket_path) = cfg.wayland_socket_paths.get("") {
+-        display_backends.insert(
+-            0,
+-            virtio::DisplayBackend::Wayland(Some(socket_path.to_owned())),
+-        );
+-    }
+-
+     let dev = virtio::Gpu::new(
+         exit_evt_wrtube
+             .try_clone()

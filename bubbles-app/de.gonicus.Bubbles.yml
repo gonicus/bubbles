@@ -1,0 +1,84 @@
+app-id: de.gonicus.Bubbles
+runtime: org.gnome.Platform
+runtime-version: '49'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+  - org.freedesktop.Sdk.Extension.llvm20
+command: bubbles
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --device=dri
+  - --filesystem=home
+  - --share=network
+  - --talk-name=org.freedesktop.Flatpak
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+modules:
+  - name: crosvm
+    buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/llvm20/bin
+      env:
+        CARGO_HOME: /run/build/crosvm/cargo
+        LIBCLANG_PATH: /usr/lib/sdk/llvm20/lib
+    build-commands:
+      - cargo --offline build --release
+      - install -Dm755 target/release/crosvm /app/bin/crosvm
+      - install -Dm644 crosvm-patches/LICENSE /app/share/licenses/de.gonicus.Bubbles/crosvm/LICENSE
+    sources:
+      - type: git
+        name: crosvm
+        url: https://chromium.googlesource.com/crosvm/crosvm
+        commit: a96cb379acf55a75887cbba190666e7d22ff9dbf
+      - type: patch
+        paths:
+          - patches/crosvm/0000-crosvm-reverts.patch
+          - patches/crosvm/0001-passt-virtio-version.patch
+          - patches/crosvm/0002-display-backend-stub.patch
+          - patches/crosvm/0003-seccomp-madvise-guard.patch
+      - type: file
+        path: patches/crosvm/LICENSE
+        dest: crosvm-patches
+        dest-filename: LICENSE
+      - crosvm-cargo-sources.json
+  - name: passt
+    buildsystem: simple
+    build-commands:
+      - make passt passt.avx2 VERSION=2025_05_03.587980c CFLAGS="-static -DGLIBC_NO_STATIC_NSS"
+        LDFLAGS="-static"
+      - install -Dm755 passt /app/bin/passt
+      - install -Dm755 passt.avx2 /app/bin/passt.avx2
+      - install -Dm644 LICENSES/GPL-2.0-or-later.txt /app/share/licenses/de.gonicus.Bubbles/passt/GPL-2.0-or-later.txt
+      - install -Dm644 LICENSES/BSD-3-Clause.txt /app/share/licenses/de.gonicus.Bubbles/passt/BSD-3-Clause.txt
+    sources:
+      - type: archive
+        url: https://passt.top/passt/snapshot/passt-2025_05_03.587980c.tar.gz
+        sha256: bacb2f4a15b1851e927016220891b479daea4be5beef80d296c0d14b51820720
+  - name: socat
+    buildsystem: simple
+    build-commands:
+      - ./configure --disable-openssl --disable-readline --disable-libwrap
+      - make socat LDFLAGS="-static"
+      - install -Dm755 socat /app/bin/socat
+      - install -Dm644 COPYING /app/share/licenses/de.gonicus.Bubbles/socat/COPYING
+    sources:
+      - type: archive
+        url: http://www.dest-unreach.org/socat/download/socat-1.8.0.3.tar.bz2
+        sha256: 01eb017361d95bb3a6941e840b59e4463a3fabf92df4154ed02b16a2ed6a0095
+  - name: bubbles
+    buildsystem: simple
+    build-options:
+      env:
+        CARGO_HOME: /run/build/bubbles/cargo
+    build-commands:
+      - cargo --offline build --release
+      - install -Dm755 target/release/bubbles /app/bin/bubbles
+      - install -Dm644 de.gonicus.Bubbles.desktop /app/share/applications/de.gonicus.Bubbles.desktop
+      - install -Dm644 de.gonicus.Bubbles.appdata.xml /app/share/metainfo/de.gonicus.Bubbles.appdata.xml
+      - install -Dm644 de.gonicus.Bubbles.svg /app/share/icons/hicolor/scalable/apps/de.gonicus.Bubbles.svg
+    sources:
+      - type: dir
+        path: .
+      - cargo-sources.json
