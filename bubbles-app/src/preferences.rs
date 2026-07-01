@@ -3,16 +3,12 @@ use gtk::prelude::{ButtonExt, EditableExt};
 use relm4::factory::{DynamicIndex, FactoryVecDeque};
 use relm4::prelude::FactoryComponent;
 use relm4::{Component, ComponentController, ComponentParts, ComponentSender, FactorySender, SimpleComponent};
-use std::{env, fs, path::PathBuf};
+use std::{fs, path::PathBuf};
 
 use crate::{BubbleConfig, load_config, save_config};
 
 fn disk_path(vm_name: &str) -> PathBuf {
-    env::current_dir()
-        .expect("cwd to be set")
-        .join(".bubbles/vms")
-        .join(vm_name)
-        .join("disk.img")
+    crate::get_data_dir().join("vms").join(vm_name).join("disk.img")
 }
 
 fn disk_size_bytes(vm_name: &str) -> u64 {
