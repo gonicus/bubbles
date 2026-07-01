@@ -18,14 +18,38 @@
 
 ## Getting started
 
-See releases.
+Right now, bubbles is distributed via a container outputting the required binaries into `$HOME/bubbles`.
+
+Requirements:
+- `podman`/`docker` for installation
+- `qemu-img`
+- `curl`
+
+Loose Recommendation:
+- `btrfs` as backing filesystem (seems to optimize for disk image deduplication under the hood)
+
+### Install
+
+```
+mkdir $HOME/bubbles
+# May be different for non-SELinux systems: skip ":Z"
+# May be different for docker: You may need to chown files afterwards
+podman run -v "$HOME/bubbles:/output:Z" ghcr.io/gonicus/bubbles/bubbles:918b181f80cd0759ba5503cc97e3c2d05dd8fe04
+# For .desktop file:
+cat > ~/.local/share/applications/bubbles.desktop <<EOF
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Bubbles
+Exec=sh -c 'cd $HOME/bubbles && LD_LIBRARY_PATH=$HOME/bubbles/runtime_libs $HOME/bubbles/bubbles'
+EOF
+```
 
 ### Run
 
 Start "Bubbles" via desktop, then:
 
 1. Press image download button, await completion
-   - This downloads a pre-built VM image (`disk.tar.gz`) published as a GitHub Release artifact, verifies its checksum, and extracts it locally.
 2. Press VM creation button, enter name, confirm
 3. Start VM, await startup and initial setup
 4. Press Terminal button
@@ -42,6 +66,17 @@ The installed system is a Debian Trixie with preinstalled...
 On first boot, it will fetch a nerdfont.
 
 ### Cheat sheet
+
+#### Grow bubble disk
+
+With stopped bubble, do on host:
+
+```
+cd ~/bubbles/.bubbles/vms/<BUBBLENAME>
+truncate -s +15G disk.img
+```
+
+Then start bubble.
 
 #### Install home-manager (recommended, it's worth it)
 
