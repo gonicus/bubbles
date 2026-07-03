@@ -330,12 +330,13 @@ jobs:
           tar czf disk.tar.gz disk.img vmlinuz initrd.img
           sha256sum disk.tar.gz | tee disk.tar.gz.sha256
           mv disk.tar.gz disk.tar.gz.sha256 ..
-      - uses: actions/checkout@v7
+          cd ..
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "$GITHUB_REF_NAME" \
             --title "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY"
             --generate-notes \
             disk.tar.gz disk.tar.gz.sha256
