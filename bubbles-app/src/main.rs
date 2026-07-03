@@ -541,7 +541,7 @@ impl AsyncFactoryComponent for VmEntry {
                             let image_disk_path = image_base_path.join("disk.img");
                             let image_linuz_path = image_base_path.join("vmlinuz");
                             let image_initrd_path = image_base_path.join("initrd.img");
-                             let _ = tokio::fs::remove_file(&crosvm_socket_path).await;
+                            let _ = tokio::fs::remove_file(&crosvm_socket_path).await;
                             let _ = tokio::fs::remove_file(&vsock_socket_path).await;
                             let _ = tokio::fs::remove_file(&passt_socket_path).await;
                             let mut passt_repair_path = passt_socket_path.clone().into_os_string();

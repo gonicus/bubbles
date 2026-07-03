@@ -322,7 +322,6 @@ jobs:
             virt-get-kernel -a disk.qcow2
             mv vmlinuz* vmlinuz
             mv initrd.img* initrd.img
-            # Convert to raw here so the app needs neither oras nor qemu-img.
             qemu-img convert -f qcow2 -O raw disk.qcow2 disk.img
             rm disk.qcow2
           '
@@ -334,7 +333,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "$GITHUB_REF_NAME" \
-            --repo "$GITHUB_REPOSITORY" \
             --title "$GITHUB_REF_NAME" \
             --generate-notes \
             disk.tar.gz disk.tar.gz.sha256
