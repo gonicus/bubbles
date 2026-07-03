@@ -9,7 +9,7 @@ jobs:
   build-agent:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7.0.0
+      - uses: actions/checkout@v7
       - run: |
           cd bubbles-agent
           cargo build --release
@@ -22,7 +22,7 @@ jobs:
   build-sommelier:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7.0.0
+      - uses: actions/checkout@v7
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -75,7 +75,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v7.0.0
+      - uses: actions/checkout@v7
         with:
           repository: lxc/lxc-ci
           ref: 3b85aa3c08e9cef885f31aae3a69f066b6c097d1
@@ -330,7 +330,7 @@ jobs:
           tar czf disk.tar.gz disk.img vmlinuz initrd.img
           sha256sum disk.tar.gz | tee disk.tar.gz.sha256
           mv disk.tar.gz disk.tar.gz.sha256 ..
-      - uses: actions/checkout@v7.0.0
+      - uses: actions/checkout@v7
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
