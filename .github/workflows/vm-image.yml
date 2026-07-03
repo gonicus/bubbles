@@ -313,8 +313,7 @@ jobs:
           ls -lR usrlocalbin
           sudo ./distrobuilder build-incus ./debian.yaml debian-output --vm
           ls -lR debian-output
-          cd debian-output
-          docker run -v $PWD:/disk debian:trixie sh -c '
+          docker run -v $PWD/debian-output:/disk debian:trixie sh -c '
             set -e
             apt-get update
             apt-get install -y guestfs-tools qemu-utils
@@ -326,11 +325,14 @@ jobs:
             rm disk.qcow2
           '
           # Package the raw image + kernel + initrd as a single release asset.
-          tar czf disk.tar.gz -C debian-output disk.img vmlinuz initrd.img
+          sudo chown -R $(id -u) debian-output
+          cd debian-output
+          tar czf disk.tar.gz disk.img vmlinuz initrd.img
           sha256sum disk.tar.gz | tee disk.tar.gz.sha256
+          mv disk.tar.gz disk.tar.gz.sha256 ..
       - name: Publish GitHub Release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "$GITHUB_REF_NAME" \
             --title "$GITHUB_REF_NAME" \

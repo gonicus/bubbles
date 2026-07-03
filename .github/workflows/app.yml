@@ -2,7 +2,7 @@ name: AppBuild
 
 on:
   push:
-    tags: [ "v*" ]
+    tags: [ "app-*" ]
 
 permissions:
   contents: write
