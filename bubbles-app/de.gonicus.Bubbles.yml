@@ -14,18 +14,66 @@ finish-args:
   - --share=network
   - --talk-name=org.freedesktop.Flatpak
 build-options:
-  append-path: /usr/lib/sdk/rust-stable/bin
+  append-path: /app/musl/bin:/usr/lib/sdk/rust-stable/bin
+  no-debuginfo: true
+cleanup:
+  - /musl
+  - /rust-musl
 modules:
+  - name: musl
+    buildsystem: simple
+    build-commands:
+      - ./configure --prefix=/app/musl --syslibdir=/app/musl/lib
+      - make -j $FLATPAK_BUILDER_N_JOBS install
+      # link to headers from SDK
+      - ln -s /usr/include/linux /usr/include/asm-generic /usr/include/$(gcc -print-multiarch)/asm /app/musl/include/
+    sources:
+      - type: archive
+        url: https://musl.libc.org/releases/musl-1.2.5.tar.gz
+        sha256: a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4
+  - name: rust-musl
+    buildsystem: simple
+    build-commands:
+      - cd rust-host && ./install.sh --prefix=/app/rust-musl --without=rust-docs,rust-docs-json-preview
+        --disable-ldconfig --verbose
+      - cd rust-std-musl && ./install.sh --prefix=/app/rust-musl --disable-ldconfig --verbose
+    sources:
+      - type: archive
+        dest: rust-host
+        url: https://static.rust-lang.org/dist/2026-07-16/rust-1.97.1-x86_64-unknown-linux-gnu.tar.xz
+        sha256: 88f28fa9af20594179f85d6df67078dfd6fa93e2f6da5e1e9b0ac4997988ca4f
+      - type: archive
+        dest: rust-std-musl
+        url: https://static.rust-lang.org/dist/2026-07-16/rust-std-1.97.1-x86_64-unknown-linux-musl.tar.xz
+        sha256: 51d83178680556f73a5fa8ad865b76a1ff541867445c00fc65dc67246bc2de66
+  - name: libcap
+    buildsystem: simple
+    build-commands:
+      - make -C libcap CC=musl-gcc COPTS='-O2' GOLANG=no SHARED=no
+      - install -Dm644 libcap/libcap.a /app/musl/lib/libcap.a
+      - install -Dm644 libcap/include/sys/capability.h /app/musl/include/sys/capability.h
+      - install -Dm644 License /app/share/licenses/de.gonicus.Bubbles/libcap/License
+    sources:
+      - type: archive
+        url: https://mirrors.edge.kernel.org/pub/linux/libs/security/linux-privs/libcap2/libcap-2.78.tar.xz
+        sha256: 0d621e562fd932ccf67b9660fb018e468a683d7b827541df27813228c996bb11
   - name: crosvm
     buildsystem: simple
     build-options:
-      append-path: /usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/llvm20/bin
+      prepend-path: /app/rust-musl/bin
+      append-path: /app/musl/bin:/usr/lib/sdk/llvm20/bin
+      # Mirror what minijail's own CXXFLAGS do for C.
+      cflags: -fno-exceptions -fno-unwind-tables -fno-asynchronous-unwind-tables
       env:
         CARGO_HOME: /run/build/crosvm/cargo
         LIBCLANG_PATH: /usr/lib/sdk/llvm20/lib
+        # minijail-sys would otherwise derive a x86_64-linux-musl- tool prefix
+        CROSS_COMPILE: ''
+        CC: musl-gcc
+        CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: -L native=/app/musl/lib
     build-commands:
-      - cargo --offline build --release
-      - install -Dm755 target/release/crosvm /app/bin/crosvm
+      - cargo --offline build --release --target x86_64-unknown-linux-musl
+      - install -Dm755 target/x86_64-unknown-linux-musl/release/crosvm /app/bin/crosvm
       - install -Dm644 crosvm-patches/LICENSE /app/share/licenses/de.gonicus.Bubbles/crosvm/LICENSE
     sources:
       - type: git
@@ -38,6 +86,9 @@ modules:
           - patches/crosvm/0001-passt-virtio-version.patch
           - patches/crosvm/0002-display-backend-stub.patch
           - patches/crosvm/0003-seccomp-madvise-guard.patch
+          - patches/crosvm/0004-remove-wayland-display.patch
+          - patches/crosvm/0005-seccomp-musl-abort.patch
+          - patches/crosvm/0006-seccomp-ioctl-sign-extended.patch
       - type: file
         path: patches/crosvm/LICENSE
         dest: crosvm-patches
@@ -45,9 +96,11 @@ modules:
       - crosvm-cargo-sources.json
   - name: passt
     buildsystem: simple
+    build-options:
+      env:
+        CC: musl-gcc
     build-commands:
-      - make passt passt.avx2 VERSION=2025_05_03.587980c CFLAGS="-static -DGLIBC_NO_STATIC_NSS"
-        LDFLAGS="-static"
+      - make passt passt.avx2 LDFLAGS="-static"
       - install -Dm755 passt /app/bin/passt
       - install -Dm755 passt.avx2 /app/bin/passt.avx2
       - install -Dm644 LICENSES/GPL-2.0-or-later.txt /app/share/licenses/de.gonicus.Bubbles/passt/GPL-2.0-or-later.txt
@@ -58,6 +111,9 @@ modules:
         sha256: a6a903e0a6e3f7e1c84de82b0382f6f059f56da8b88018a68cb5eb4440bebd92
   - name: socat
     buildsystem: simple
+    build-options:
+      env:
+        CC: musl-gcc
     build-commands:
       - ./configure --disable-openssl --disable-readline --disable-libwrap
       - make socat LDFLAGS="-static"

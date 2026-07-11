@@ -1,0 +1,24 @@
+diff --git a/jail/seccomp/x86_64/common_device.policy b/jail/seccomp/x86_64/common_device.policy
+--- a/jail/seccomp/x86_64/common_device.policy
++++ b/jail/seccomp/x86_64/common_device.policy
+@@ -67,6 +67,8 @@ sendto: 1
+ set_robust_list: 1
+ sigaltstack: 1
+ tgkill: arg2 == SIGABRT
++# musl's raise()/abort() use tkill where glibc uses tgkill
++tkill: arg2 == SIGABRT
+ write: 1
+ writev: 1
+ fcntl: 1
+diff --git a/jail/seccomp/x86_64/gpu_common.policy b/jail/seccomp/x86_64/gpu_common.policy
+--- a/jail/seccomp/x86_64/gpu_common.policy
++++ b/jail/seccomp/x86_64/gpu_common.policy
+@@ -59,6 +59,8 @@ sendto: 1
+ set_robust_list: 1
+ sigaltstack: 1
+ tgkill: arg2 == SIGABRT
++# musl's raise()/abort() use tkill where glibc uses tgkill
++tkill: arg2 == SIGABRT
+ write: 1
+ writev: 1
+ uname: 1

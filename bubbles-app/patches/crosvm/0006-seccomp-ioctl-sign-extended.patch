@@ -1,0 +1,141 @@
+Also accept the sign-extended form of ioctl requests with the direction bit set.
+
+The kernel truncates the request to unsigned int, but the seccomp filter sees
+the raw register. musl passes the request as a signed int, so every _IOR/_IOWR
+request arrives as 0xffffffff........ and fails the equality test, killing the
+device processes with SIGSYS. Spell out both forms.
+
+Only the x86_64 policies are patched; the build targets x86_64 only.
+
+diff --git a/jail/seccomp/x86_64/common_device.policy b/jail/seccomp/x86_64/common_device.policy
+index ac4d3e9..7e85f3b 100644
+--- a/jail/seccomp/x86_64/common_device.policy
++++ b/jail/seccomp/x86_64/common_device.policy
+@@ -75,4 +75,6 @@ uname: 1
+ ## Rules for vmm-swap
+ userfaultfd: 1
+ # 0xc018aa3f == UFFDIO_API, 0xaa00 == USERFAULTFD_IOC_NEW
+-ioctl: arg1 == 0xc018aa3f || arg1 == 0xaa00
++# Requests with the direction bit set are matched twice: musl passes the
++# request as a signed int, so the filter sees it sign-extended.
++ioctl: arg1 == 0xc018aa3f || arg1 == 0xffffffffc018aa3f || arg1 == 0xaa00
+diff --git a/jail/seccomp/x86_64/fs_device.policy b/jail/seccomp/x86_64/fs_device.policy
+index 5f49bfc..954a01a 100644
+--- a/jail/seccomp/x86_64/fs_device.policy
++++ b/jail/seccomp/x86_64/fs_device.policy
+@@ -30,13 +30,13 @@ getresuid: 1
+ # Use constants for verity ioctls since minijail doesn't understand them yet.
+ # 0x40806685 = FS_IOC_ENABLE_VERITY
+ # 0xc0046686 = FS_IOC_MEASURE_VERITY
+-ioctl: arg1 == FS_IOC_FSGETXATTR || \
++ioctl: arg1 == FS_IOC_FSGETXATTR || arg1 == 0xffffffff00000000|FS_IOC_FSGETXATTR || \
+        arg1 == FS_IOC_FSSETXATTR || \
+-       arg1 == FS_IOC_GETFLAGS || \
++       arg1 == FS_IOC_GETFLAGS || arg1 == 0xffffffff00000000|FS_IOC_GETFLAGS || \
+        arg1 == FS_IOC_SETFLAGS || \
+-       arg1 == FS_IOC_GET_ENCRYPTION_POLICY_EX || \
++       arg1 == FS_IOC_GET_ENCRYPTION_POLICY_EX || arg1 == 0xffffffff00000000|FS_IOC_GET_ENCRYPTION_POLICY_EX || \
+        arg1 == 0x40806685 || \
+-       arg1 == 0xc0046686
++       arg1 == 0xc0046686 || arg1 == 0xffffffffc0046686
+ linkat: 1
+ mkdir: 1
+ mkdirat: 1
+diff --git a/jail/seccomp/x86_64/gpu_common.policy b/jail/seccomp/x86_64/gpu_common.policy
+index c87148a..b183761 100644
+--- a/jail/seccomp/x86_64/gpu_common.policy
++++ b/jail/seccomp/x86_64/gpu_common.policy
+@@ -120,4 +120,4 @@ getegid: 1
+ ## Rules for vmm-swap
+ userfaultfd: 1
+ # 0xc018aa3f == UFFDIO_API, 0xaa00 == USERFAULTFD_IOC_NEW
+-ioctl: arg1 == 0xc018aa3f || arg1 == 0xaa00
++ioctl: arg1 == 0xc018aa3f || arg1 == 0xffffffffc018aa3f || arg1 == 0xaa00
+diff --git a/jail/seccomp/x86_64/jail_warden.policy b/jail/seccomp/x86_64/jail_warden.policy
+index af48f0d..448ac4d 100644
+--- a/jail/seccomp/x86_64/jail_warden.policy
++++ b/jail/seccomp/x86_64/jail_warden.policy
+@@ -25,7 +25,7 @@ ioctl: arg1 == 0x5421 || \
+        arg1 == 0x400454ca || \
+        arg1 == 0x400454d8 || \
+        arg1 == 0x400454d0 || \
+-       arg1 == 0xc018aa3f || \
++       arg1 == 0xc018aa3f || arg1 == 0xffffffffc018aa3f || \
+        arg1 == 0xaa00
+ madvise: 1
+ mmap: arg2 in ~PROT_EXEC || arg2 in ~PROT_WRITE
+diff --git a/jail/seccomp/x86_64/swap_monitor.policy b/jail/seccomp/x86_64/swap_monitor.policy
+index 00297e2..7b8c4fa 100644
+--- a/jail/seccomp/x86_64/swap_monitor.policy
++++ b/jail/seccomp/x86_64/swap_monitor.policy
+@@ -26,7 +26,7 @@ getdents64: 1
+ getpid: 1
+ gettid: 1
+ # 0xc020aa00 = UFFDIO_REGISTER, 0x8010aa01 == UFFDIO_UNREGISTER, 0x8010aa02 == UFFDIO_WAKE, 0xc028aa03 == UFFDIO_COPY, 0xc020aa04 == UFFDIO_ZEROPAGE
+-ioctl: arg1 == 0xc020aa00 || arg1 == 0x8010aa01 || arg1 == 0x8010aa02 || arg1 == 0xc028aa03 || arg1 == 0xc020aa04
++ioctl: arg1 == 0xc020aa00 || arg1 == 0xffffffffc020aa00 || arg1 == 0x8010aa01 || arg1 == 0xffffffff8010aa01 || arg1 == 0x8010aa02 || arg1 == 0xffffffff8010aa02 || arg1 == 0xc028aa03 || arg1 == 0xffffffffc028aa03 || arg1 == 0xc020aa04 || arg1 == 0xffffffffc020aa04
+ lseek: 1
+ madvise: arg2 == MADV_DONTNEED || arg2 == MADV_WILLNEED || arg2 == MADV_DONTDUMP || arg2 == MADV_MERGEABLE || arg2 == MADV_REMOVE
+ memfd_create: 1
+diff --git a/jail/seccomp/x86_64/vhost_net_device.policy b/jail/seccomp/x86_64/vhost_net_device.policy
+index 868f0f9..a595bf9 100644
+--- a/jail/seccomp/x86_64/vhost_net_device.policy
++++ b/jail/seccomp/x86_64/vhost_net_device.policy
+@@ -20,7 +20,7 @@
+ # arg1 == VHOST_SET_VRING_CALL ||
+ # arg1 == VHOST_SET_VRING_ERR ||
+ # arg1 == VHOST_NET_SET_BACKEND
+-ioctl: arg1 == 0x8008af00 || arg1 == 0x4008af00 || arg1 == 0x0000af01 || arg1 == 0x0000af02 || arg1 == 0x4008af03 || arg1 == 0x4008af04 || arg1 == 0x4004af07 || arg1 == 0x4008af10 || arg1 == 0x4028af11 || arg1 == 0x4008af12 || arg1 == 0xc008af12 || arg1 == 0x4008af20 || arg1 == 0x4008af21 || arg1 == 0x4008af22 || arg1 == 0x4008af30
++ioctl: arg1 == 0x8008af00 || arg1 == 0xffffffff8008af00 || arg1 == 0x4008af00 || arg1 == 0x0000af01 || arg1 == 0x0000af02 || arg1 == 0x4008af03 || arg1 == 0x4008af04 || arg1 == 0x4004af07 || arg1 == 0x4008af10 || arg1 == 0x4028af11 || arg1 == 0x4008af12 || arg1 == 0xc008af12 || arg1 == 0xffffffffc008af12 || arg1 == 0x4008af20 || arg1 == 0x4008af21 || arg1 == 0x4008af22 || arg1 == 0x4008af30
+ open: return ENOENT
+ openat: return ENOENT
+ prctl: arg0 == PR_SET_NAME
+diff --git a/jail/seccomp/x86_64/vhost_vsock.policy b/jail/seccomp/x86_64/vhost_vsock.policy
+index e7ddca0..a166634 100644
+--- a/jail/seccomp/x86_64/vhost_vsock.policy
++++ b/jail/seccomp/x86_64/vhost_vsock.policy
+@@ -22,7 +22,7 @@
+ # arg1 == VHOST_SET_VRING_ERR ||
+ # arg1 == VHOST_VSOCK_SET_GUEST_CID ||
+ # arg1 == VHOST_VSOCK_SET_RUNNING
+-ioctl: arg1 == 0x8008af00 || arg1 == 0x4008af00 || arg1 == 0x0000af01 || arg1 == 0x0000af02 || arg1 == 0x4008af03 || arg1 == 0x4008af04 || arg1 == 0x4004af07 || arg1 == 0x4008af10 || arg1 == 0x4028af11 || arg1 == 0x4008af12 || arg1 == 0xc008af12 || arg1 == 0x4008af20 || arg1 == 0x4008af21 || arg1 == 0x4008af22 || arg1 == 0x4008af60 || arg1 == 0x4004af61
++ioctl: arg1 == 0x8008af00 || arg1 == 0xffffffff8008af00 || arg1 == 0x4008af00 || arg1 == 0x0000af01 || arg1 == 0x0000af02 || arg1 == 0x4008af03 || arg1 == 0x4008af04 || arg1 == 0x4004af07 || arg1 == 0x4008af10 || arg1 == 0x4028af11 || arg1 == 0x4008af12 || arg1 == 0xc008af12 || arg1 == 0xffffffffc008af12 || arg1 == 0x4008af20 || arg1 == 0x4008af21 || arg1 == 0x4008af22 || arg1 == 0x4008af60 || arg1 == 0x4004af61
+ connect: 1
+ open: return ENOENT
+ openat: return ENOENT
+diff --git a/jail/seccomp/x86_64/video_device.policy b/jail/seccomp/x86_64/video_device.policy
+index 430b4fc..4b9d4a9 100644
+--- a/jail/seccomp/x86_64/video_device.policy
++++ b/jail/seccomp/x86_64/video_device.policy
+@@ -103,7 +103,7 @@ prctl: arg0 == PR_SET_NAME
+ ## Rules for vmm-swap
+ userfaultfd: 1
+ # 0xc018aa3f == UFFDIO_API, 0xaa00 == USERFAULTFD_IOC_NEW
+-ioctl: arg1 == 0xc018aa3f || arg1 == 0xaa00
++ioctl: arg1 == 0xc018aa3f || arg1 == 0xffffffffc018aa3f || arg1 == 0xaa00
+ 
+ # Required by VAAPI backend
+ access: 1
+diff --git a/jail/seccomp/x86_64/wl_device.policy b/jail/seccomp/x86_64/wl_device.policy
+index a51f569..79a1aa1 100644
+--- a/jail/seccomp/x86_64/wl_device.policy
++++ b/jail/seccomp/x86_64/wl_device.policy
+@@ -8,4 +8,4 @@ clone: arg0 & CLONE_THREAD
+ # Used to connect to wayland. arg0 == AF_UNIX && arg1 == SOCK_STREAM|SOCK_CLOEXEC
+ socket: arg0 == 1 && arg1 == 0x80001 && arg2 == 0
+ # arg1 == FIONBIO || arg1 == DMA_BUF_IOCTL_SYNC || arg1 == SYNC_IOC_FILE_INFO || arg1 & DRM_IOCTL_BASE
+-ioctl: arg1 == 0x5421 || arg1 == 0x40086200 || arg1 == 0xc0383e04 || arg1 & 0x6400
++ioctl: arg1 == 0x5421 || arg1 == 0x40086200 || arg1 == 0xc0383e04 || arg1 == 0xffffffffc0383e04 || arg1 & 0x6400
+diff --git a/jail/seccomp/x86_64/xhci_device.policy b/jail/seccomp/x86_64/xhci_device.policy
+index f727442..e4402ef 100644
+--- a/jail/seccomp/x86_64/xhci_device.policy
++++ b/jail/seccomp/x86_64/xhci_device.policy
+@@ -41,7 +41,7 @@ statx: 1
+ # 0x80085504 == USBDEVFS_SETINTERFACE
+ # 0x80044801 == HIDIOCGRDESCSIZE
+ # 0x90044802 == HIDIOCGRDESC
+-ioctl: arg1 == 0xc0185500 || arg1 == 0x41045508 || arg1 == 0x8004550f || arg1 == 0x4008550d || arg1 == 0x8004551a || arg1 == 0x550b || arg1 == 0x80045510 || arg1 == 0x80045515 || arg1 == 0x8038550a || arg1 == 0x5514 || arg1 == 0x80045505 || arg1 == 0x8108551b || arg1 == 0x40085511 || arg1 == 0x80185520 || arg1 == 0x551f || arg1 == 0x8008551c || arg1 == 0x8008551d || arg1 == 0x80085504 || arg1 == 0x80044801 || arg1 == 0x90044802
++ioctl: arg1 == 0xc0185500 || arg1 == 0xffffffffc0185500 || arg1 == 0x41045508 || arg1 == 0x8004550f || arg1 == 0xffffffff8004550f || arg1 == 0x4008550d || arg1 == 0x8004551a || arg1 == 0xffffffff8004551a || arg1 == 0x550b || arg1 == 0x80045510 || arg1 == 0xffffffff80045510 || arg1 == 0x80045515 || arg1 == 0xffffffff80045515 || arg1 == 0x8038550a || arg1 == 0xffffffff8038550a || arg1 == 0x5514 || arg1 == 0x80045505 || arg1 == 0xffffffff80045505 || arg1 == 0x8108551b || arg1 == 0xffffffff8108551b || arg1 == 0x40085511 || arg1 == 0x80185520 || arg1 == 0xffffffff80185520 || arg1 == 0x551f || arg1 == 0x8008551c || arg1 == 0xffffffff8008551c || arg1 == 0x8008551d || arg1 == 0xffffffff8008551d || arg1 == 0x80085504 || arg1 == 0xffffffff80085504 || arg1 == 0x80044801 || arg1 == 0xffffffff80044801 || arg1 == 0x90044802 || arg1 == 0xffffffff90044802
+ fstat: 1
+ newfstatat: 1
+ getrandom: 1
