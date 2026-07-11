@@ -15,7 +15,20 @@ finish-args:
   - --talk-name=org.freedesktop.Flatpak
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin
+cleanup:
+  - /lib/crosvm-static
 modules:
+  # libcap for static crosvm build
+  - name: libcap
+    buildsystem: simple
+    build-commands:
+      - make -C libcap GOLANG=no SHARED=no lib=lib
+      - install -Dm644 libcap/libcap.a /app/lib/crosvm-static/libcap.a
+      - install -Dm644 License /app/share/licenses/de.gonicus.Bubbles/libcap/License
+    sources:
+      - type: archive
+        url: https://mirrors.edge.kernel.org/pub/linux/libs/security/linux-privs/libcap2/libcap-2.78.tar.xz
+        sha256: 0d621e562fd932ccf67b9660fb018e468a683d7b827541df27813228c996bb11
   - name: crosvm
     buildsystem: simple
     build-options:
@@ -23,6 +36,7 @@ modules:
       env:
         CARGO_HOME: /run/build/crosvm/cargo
         LIBCLANG_PATH: /usr/lib/sdk/llvm20/lib
+        RUSTFLAGS: -L /app/lib/crosvm-static
     build-commands:
       - cargo --offline build --release
       - install -Dm755 target/release/crosvm /app/bin/crosvm
@@ -38,6 +52,7 @@ modules:
           - patches/crosvm/0001-passt-virtio-version.patch
           - patches/crosvm/0002-display-backend-stub.patch
           - patches/crosvm/0003-seccomp-madvise-guard.patch
+          - patches/crosvm/0004-remove-wayland-display.patch
       - type: file
         path: patches/crosvm/LICENSE
         dest: crosvm-patches
