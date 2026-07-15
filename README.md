@@ -1,3 +1,5 @@
+<img src="bubbles-app/de.gonicus.Bubbles.svg" width="120"/>
+
 # Bubbles - lightweight Linux working environments
 
 **Quick**: Starts up in just a few seconds
@@ -18,31 +20,19 @@
 
 ## Getting started
 
-Right now, bubbles is distributed via a container outputting the required binaries into `$HOME/bubbles`.
+Required libraries:
+- libwayland-client
+- libcap
+- glibc
 
-Requirements:
-- `podman`/`docker` for installation
-- `qemu-img`
-- `curl`
+These libraries are present on usual distributions (and NixOS via nix-ld), but their need should be removed in later releases.
 
-Loose Recommendation:
-- `btrfs` as backing filesystem (seems to optimize for disk image deduplication under the hood)
+Download the flatpak file for the latest `app-v*` release from [releases](https://github.com/gonicus/bubbles/releases).
 
-### Install
+Install it:
 
 ```
-mkdir $HOME/bubbles
-# May be different for non-SELinux systems: skip ":Z"
-# May be different for docker: You may need to chown files afterwards
-podman run -v "$HOME/bubbles:/output:Z" ghcr.io/gonicus/bubbles/bubbles:918b181f80cd0759ba5503cc97e3c2d05dd8fe04
-# For .desktop file:
-cat > ~/.local/share/applications/bubbles.desktop <<EOF
-[Desktop Entry]
-Type=Application
-Version=1.0
-Name=Bubbles
-Exec=sh -c 'cd $HOME/bubbles && LD_LIBRARY_PATH=$HOME/bubbles/runtime_libs $HOME/bubbles/bubbles'
-EOF
+flatpak install --bundle $HOME/Downloads/de.gonicus.Bubbles.flatpak
 ```
 
 ### Run
@@ -50,6 +40,7 @@ EOF
 Start "Bubbles" via desktop, then:
 
 1. Press image download button, await completion
+   - This downloads a pre-built VM image (`disk.tar.gz`) published as a GitHub Release artifact, verifies its checksum, and extracts it locally.
 2. Press VM creation button, enter name, confirm
 3. Start VM, await startup and initial setup
 4. Press Terminal button
@@ -66,17 +57,6 @@ The installed system is a Debian Trixie with preinstalled...
 On first boot, it will fetch a nerdfont.
 
 ### Cheat sheet
-
-#### Grow bubble disk
-
-With stopped bubble, do on host:
-
-```
-cd ~/bubbles/.bubbles/vms/<BUBBLENAME>
-truncate -s +15G disk.img
-```
-
-Then start bubble.
 
 #### Install home-manager (recommended, it's worth it)
 
