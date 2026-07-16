@@ -18,6 +18,8 @@
 
 **Integrated**: Wayland windows are managed on the host compositor
 
+<img src="bubbles-app/demo.png"/>
+
 ## Getting started
 
 Required libraries:
