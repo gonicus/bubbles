@@ -54,8 +54,8 @@ modules:
       - install -Dm644 LICENSES/BSD-3-Clause.txt /app/share/licenses/de.gonicus.Bubbles/passt/BSD-3-Clause.txt
     sources:
       - type: archive
-        url: https://passt.top/passt/snapshot/passt-2025_05_03.587980c.tar.gz
-        sha256: bacb2f4a15b1851e927016220891b479daea4be5beef80d296c0d14b51820720
+        url: https://passt.top/passt/snapshot/passt-2025_05_07.eea8a76.tar.gz
+        sha256: a6a903e0a6e3f7e1c84de82b0382f6f059f56da8b88018a68cb5eb4440bebd92
   - name: socat
     buildsystem: simple
     build-commands:
