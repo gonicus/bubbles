@@ -22,9 +22,11 @@ modules:
   - name: libcap
     buildsystem: simple
     build-commands:
-      - make -C libcap GOLANG=no SHARED=no lib=lib
+      - make -C libcap COPTS='-O2 -fPIC' GOLANG=no SHARED=no lib=lib
       - install -Dm644 libcap/libcap.a /app/lib/crosvm-static/libcap.a
       - install -Dm644 License /app/share/licenses/de.gonicus.Bubbles/libcap/License
+      # Provide libm stub
+      - ar rcs /app/lib/crosvm-static/libm.a
     sources:
       - type: archive
         url: https://mirrors.edge.kernel.org/pub/linux/libs/security/linux-privs/libcap2/libcap-2.78.tar.xz
@@ -36,10 +38,10 @@ modules:
       env:
         CARGO_HOME: /run/build/crosvm/cargo
         LIBCLANG_PATH: /usr/lib/sdk/llvm20/lib
-        RUSTFLAGS: -L /app/lib/crosvm-static
+        RUSTFLAGS: -C target-feature=+crt-static -L /app/lib/crosvm-static
     build-commands:
-      - cargo --offline build --release
-      - install -Dm755 target/release/crosvm /app/bin/crosvm
+      - cargo --offline build --release --target x86_64-unknown-linux-gnu
+      - install -Dm755 target/x86_64-unknown-linux-gnu/release/crosvm /app/bin/crosvm
       - install -Dm644 crosvm-patches/LICENSE /app/share/licenses/de.gonicus.Bubbles/crosvm/LICENSE
     sources:
       - type: git
