@@ -144,25 +144,12 @@ fn determine_download_status() -> ImageStatus {
     };
 }
 
-pub async fn wait_until_exists(path: &Path) {
+pub async fn wait_until_exists(file_path: &Path) {
     loop {
-        let exists = if is_flatpak() {
-            // /tmp is sandbox-private; check on the host
-            let args = make_host_args(&[
-                OsStr::new("test"),
-                OsStr::new("-e"),
-                path.as_os_str(),
-            ]);
-            let args_ref: Vec<&OsStr> = args.iter().map(OsString::as_os_str).collect();
-            let p = gtk::gio::Subprocess::newv(&args_ref, SubprocessFlags::STDERR_SILENCE)
-                .expect("spawn host test");
-            p.wait_future().await.ok();
-            p.is_successful()
-        } else {
-            path.exists()
-        };
-        if exists { return; }
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        match tokio::fs::metadata(file_path).await {
+            Ok(meta) if meta.len() > 0 => return,
+            _ => tokio::time::sleep(std::time::Duration::from_millis(50)).await,
+        }
     }
 }
 
@@ -538,15 +525,13 @@ impl AsyncFactoryComponent for VmEntry {
                             let config = load_config(&vm_name);
                             let crosvm_socket_path = image_base_path.join("crosvm_socket");
                             let passt_socket_path = Path::new("/tmp").join(format!("passt_socket_{}", vm_name.clone()));
+                            let passt_pid_path = image_base_path.join("passt.pid");
                             let image_disk_path = image_base_path.join("disk.img");
                             let image_linuz_path = image_base_path.join("vmlinuz");
                             let image_initrd_path = image_base_path.join("initrd.img");
                             let _ = tokio::fs::remove_file(&crosvm_socket_path).await;
                             let _ = tokio::fs::remove_file(&vsock_socket_path).await;
-                            let _ = tokio::fs::remove_file(&passt_socket_path).await;
-                            let mut passt_repair_path = passt_socket_path.clone().into_os_string();
-                            passt_repair_path.push(".repair");
-                            let _ = tokio::fs::remove_file(PathBuf::from(passt_repair_path)).await;
+                            let _ = tokio::fs::remove_file(&passt_pid_path).await;
 
                             let socat_bin: OsString = if is_flatpak() {
                                 flatpak_host_bin("socat").into_os_string()
@@ -577,6 +562,8 @@ impl AsyncFactoryComponent for VmEntry {
                                 OsStr::new("--vhost-user"),
                                 OsStr::new("--socket"),
                                 passt_socket_path.as_os_str(),
+                                OsStr::new("--pid"),
+                                passt_pid_path.as_os_str(),
                             ];
                             let ports_joined = config.tcp_ports.join(",");
                             if !ports_joined.is_empty() {
@@ -594,7 +581,7 @@ impl AsyncFactoryComponent for VmEntry {
                                 SubprocessFlags::empty()
                             ).expect("start of passt process");
 
-                            wait_until_exists(&passt_socket_path).await;
+                            wait_until_exists(&passt_pid_path).await;
 
                             let crosvm_bin: OsString = if is_flatpak() {
                                 flatpak_host_bin("crosvm").into_os_string()
