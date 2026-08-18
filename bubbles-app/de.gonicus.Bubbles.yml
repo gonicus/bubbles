@@ -14,7 +14,7 @@ finish-args:
   - --share=network
   - --talk-name=org.freedesktop.Flatpak
 build-options:
-  append-path: /app/musl/bin:/usr/lib/sdk/rust-stable/bin
+  append-path: /app/musl/bin
   no-debuginfo: true
 cleanup:
   - /musl
@@ -66,13 +66,14 @@ modules:
       cflags: -fno-exceptions -fno-unwind-tables -fno-asynchronous-unwind-tables
       env:
         CARGO_HOME: /run/build/crosvm/cargo
+        RUSTC: /app/rust-musl/bin/rustc
         LIBCLANG_PATH: /usr/lib/sdk/llvm20/lib
         # minijail-sys would otherwise derive a x86_64-linux-musl- tool prefix
         CROSS_COMPILE: ''
         CC: musl-gcc
         CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: -L native=/app/musl/lib
     build-commands:
-      - cargo --offline build --release --target x86_64-unknown-linux-musl
+      - /app/rust-musl/bin/cargo --offline build --release --target x86_64-unknown-linux-musl
       - install -Dm755 target/x86_64-unknown-linux-musl/release/crosvm /app/bin/crosvm
       - install -Dm644 crosvm-patches/LICENSE /app/share/licenses/de.gonicus.Bubbles/crosvm/LICENSE
     sources:
@@ -126,6 +127,7 @@ modules:
   - name: bubbles
     buildsystem: simple
     build-options:
+      append-path: /usr/lib/sdk/rust-stable/bin
       env:
         CARGO_HOME: /run/build/bubbles/cargo
     build-commands:
