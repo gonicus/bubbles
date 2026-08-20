@@ -5,4 +5,4 @@ Name=Bubbles
 Comment=Lightweight Linux working environments
 Exec=bubbles
 Icon=de.gonicus.Bubbles
-Categories=System;Virtualization;
+Categories=Development
