@@ -88,7 +88,7 @@ modules:
           - patches/crosvm/0002-display-backend-stub.patch
           - patches/crosvm/0003-seccomp-madvise-guard.patch
           - patches/crosvm/0004-remove-wayland-display.patch
-          - patches/crosvm/0005-seccomp-musl-abort.patch
+          - patches/crosvm/0005-seccomp-musl-syscalls.patch
           - patches/crosvm/0006-seccomp-ioctl-sign-extended.patch
       - type: file
         path: patches/crosvm/LICENSE
