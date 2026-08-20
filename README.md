@@ -22,6 +22,8 @@
 
 ## Getting started
 
+Download the flatpak file for the latest `app-v*` release from [releases](https://github.com/gonicus/bubbles/releases).
+
 Install it:
 
 ```
