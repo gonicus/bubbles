@@ -13,7 +13,15 @@ diff --git a/jail/seccomp/x86_64/common_device.policy b/jail/seccomp/x86_64/comm
 diff --git a/jail/seccomp/x86_64/gpu_common.policy b/jail/seccomp/x86_64/gpu_common.policy
 --- a/jail/seccomp/x86_64/gpu_common.policy
 +++ b/jail/seccomp/x86_64/gpu_common.policy
-@@ -59,6 +59,8 @@ sendto: 1
+@@ -39,6 +39,7 @@ munmap: 1
+ nanosleep: 1
+ clock_nanosleep: 1
+ pipe2: 1
++pipe: 1
+ poll: 1
+ ppoll: 1
+ read: 1
+@@ -59,6 +60,8 @@ sendto: 1
  set_robust_list: 1
  sigaltstack: 1
  tgkill: arg2 == SIGABRT
