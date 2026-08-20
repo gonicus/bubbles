@@ -17,11 +17,6 @@ fn disk_size_bytes(vm_name: &str) -> u64 {
         .unwrap_or(0)
 }
 
-fn format_disk_size(bytes: u64) -> String {
-    let gb = bytes as f64 / (1024.0 * 1024.0 * 1024.0);
-    format!("{:.2} GB", gb)
-}
-
 fn disk_size_gb_ceil(vm_name: &str) -> u32 {
     let bytes = disk_size_bytes(vm_name);
     let gb = bytes as f64 / (1024.0 * 1024.0 * 1024.0);
