@@ -4,6 +4,12 @@
 
 **Quick**: Starts up in just a few seconds
 
+**Integrated**: Wayland windows are managed on the host compositor, Networking is transparent
+
+**Rootless**: Does not require host root access
+
+**Flexible**: Run containers within a Bubble - without hassle
+
 **Disposable**: Do not break your host; Break your bubble and discard it
 
 **Isolated**: Strong KVM isolation boundary
@@ -13,10 +19,6 @@
 **Mutable**: If Nix is too strict, fall back on Debian's apt or install any other package manager
 
 **Atomic Desktop Friendly**: Works within e. g. Fedora Atomic desktops
-
-**Rootless**: Does not require host root access
-
-**Integrated**: Wayland windows are managed on the host compositor
 
 <img src="bubbles-app/demo.png"/>
 
@@ -35,7 +37,6 @@ flatpak install --bundle $HOME/Downloads/de.gonicus.Bubbles.flatpak
 Start "Bubbles" via desktop, then:
 
 1. Press image download button, await completion
-   - This downloads a pre-built VM image (`disk.tar.gz`) published as a GitHub Release artifact, verifies its checksum, and extracts it locally.
 2. Press VM creation button, enter name, confirm
 3. Start VM, await startup and initial setup
 4. Press Terminal button
@@ -70,10 +71,8 @@ $ home-manager switch
 #### Enforcing Wayland
 
 - Chromium: `chromium --ozone-platform=wayland`
+- VS Code: `code --ozone-platform=wayland`
 - Firefox: `WAYLAND_DISPLAY=wayland-0 firefox`
-- VS Code:
-    - `mkdir -p ~/.config/Code/User && echo '{"window.titleBarStyle": "custom"}' > ~/.config/Code/User/settings.json`
-    - `code --ozone-platform=wayland`
 
 #### Sound socket forwarding
 
