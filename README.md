@@ -22,15 +22,6 @@
 
 ## Getting started
 
-Required libraries:
-- libwayland-client
-- libcap
-- glibc
-
-These libraries are present on usual distributions (and NixOS via nix-ld), but their need should be removed in later releases.
-
-Download the flatpak file for the latest `app-v*` release from [releases](https://github.com/gonicus/bubbles/releases).
-
 Install it:
 
 ```
