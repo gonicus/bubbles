@@ -1,0 +1,126 @@
+diff --git a/vm_tools/sommelier/sommelier-ctx.cc b/vm_tools/sommelier/sommelier-ctx.cc
+index 9f654d03..297acc66 100644
+--- a/vm_tools/sommelier/sommelier-ctx.cc
++++ b/vm_tools/sommelier/sommelier-ctx.cc
+@@ -243,12 +243,14 @@ static int sl_handle_clipboard_event(int fd, uint32_t mask, void* data) {
+ 
+   rv = ctx->channel->handle_pipe(fd, readable, hang_up);
+   if (rv) {
+-    LOG(ERROR) << "reading pipe failed with " << strerror(rv);
++    LOG(ERROR) << "reading clipboard pipe " << fd << " failed with "
++               << strerror(-rv);
++    ctx->clipboard_event_sources.erase(fd);
+     return 0;
+   }
+ 
+   if (hang_up) {
+-    ctx->clipboard_event_source.reset();
++    ctx->clipboard_event_sources.erase(fd);
+     return 0;
+   }
+ 
+@@ -286,9 +288,15 @@ static int sl_handle_wayland_channel_event(int fd, uint32_t mask, void* data) {
+     struct wl_event_loop* event_loop =
+         wl_display_get_event_loop(ctx->host_display);
+ 
+-    ctx->clipboard_event_source.reset(
+-        wl_event_loop_add_fd(event_loop, pipe_read_fd, WL_EVENT_READABLE,
+-                             sl_handle_clipboard_event, ctx));
++    std::unique_ptr<struct wl_event_source>& source =
++        ctx->clipboard_event_sources[pipe_read_fd];
++    if (source) {
++      LOG(ERROR) << "clipboard pipe " << pipe_read_fd
++                 << " was already registered";
++    }
++    source.reset(wl_event_loop_add_fd(event_loop, pipe_read_fd,
++                                      WL_EVENT_READABLE,
++                                      sl_handle_clipboard_event, ctx));
+   } else if (event_type != WaylandChannelEvent::Receive) {
+     return 1;
+   }
+diff --git a/vm_tools/sommelier/sommelier-ctx.h b/vm_tools/sommelier/sommelier-ctx.h
+index 79eef256..7e35ca0f 100644
+--- a/vm_tools/sommelier/sommelier-ctx.h
++++ b/vm_tools/sommelier/sommelier-ctx.h
+@@ -6,6 +6,7 @@
+ #define VM_TOOLS_SOMMELIER_SOMMELIER_CTX_H_
+ 
+ #include <limits.h>
++#include <map>
+ #include <memory>
+ #include <string>
+ #include <vector>
+@@ -115,7 +116,12 @@ struct sl_context {
+   std::unique_ptr<struct wl_event_source> display_ready_event_source;
+   std::unique_ptr<struct wl_event_source> sigchld_event_source;
+   std::unique_ptr<struct wl_event_source> sigusr1_event_source;
+-  std::unique_ptr<struct wl_event_source> clipboard_event_source;
++  // One entry per in-flight wl_data_source.send transfer, keyed by the pipe fd
++  // the channel handed out; a single selection proxies one per offered mime
++  // type concurrently.  The fd is owned by the channel, which closes it in
++  // handle_pipe() on hang up.
++  std::map<int, std::unique_ptr<struct wl_event_source>>
++      clipboard_event_sources;
+   std::unique_ptr<struct wl_event_source> stats_timer_event_source;
+   struct wl_array dpi;
+   int wm_fd;
+diff --git a/vm_tools/sommelier/virtualization/virtgpu_channel.cc b/vm_tools/sommelier/virtualization/virtgpu_channel.cc
+index eb9eb026..47056a1a 100644
+--- a/vm_tools/sommelier/virtualization/virtgpu_channel.cc
++++ b/vm_tools/sommelier/virtualization/virtgpu_channel.cc
+@@ -770,14 +770,19 @@ int32_t VirtGpuChannel::create_pipe_internal(int& out_pipe_fd,
+   pipe_desc.write_fd = fds[1];
+   pipe_desc.identifier = identifier;
+   pipe_desc.identifier_type = identifier_type;
+-  pipe_cache_.push_back(pipe_desc);
+ 
++  // Forget the end handed to the caller; once the caller closes it the number
++  // can be recycled, and pipe_lookup() would alias this entry to a new pipe.
+   if (return_read_pipe) {
+     out_pipe_fd = fds[0];
++    pipe_desc.read_fd = -1;
+   } else {
+     out_pipe_fd = fds[1];
++    pipe_desc.write_fd = -1;
+   }
+ 
++  pipe_cache_.push_back(pipe_desc);
++
+   return 0;
+ }
+ 
+@@ -875,6 +880,11 @@ int32_t VirtGpuChannel::pipe_lookup(uint32_t identifier_type,
+                                     size_t& index) {
+   index = 0;
+   for (const auto& pipe_desc : pipe_cache_) {
++    if (pipe_desc.identifier_type != identifier_type) {
++      index++;
++      continue;
++    }
++
+     if (pipe_desc.identifier == identifier) {
+       // The host and guest are proxying the read operation, need to write to
+       // internally owned file descriptor.
+@@ -891,7 +901,7 @@ int32_t VirtGpuChannel::pipe_lookup(uint32_t identifier_type,
+       }
+     }
+ 
+-    if (fd == pipe_desc.read_fd || fd == pipe_desc.write_fd) {
++    if (fd >= 0 && (fd == pipe_desc.read_fd || fd == pipe_desc.write_fd)) {
+       identifier = pipe_desc.identifier;
+       return 0;
+     }
+diff --git a/vm_tools/sommelier/virtualization/wayland_channel.h b/vm_tools/sommelier/virtualization/wayland_channel.h
+index 8c6e4dac..d7416f57 100644
+--- a/vm_tools/sommelier/virtualization/wayland_channel.h
++++ b/vm_tools/sommelier/virtualization/wayland_channel.h
+@@ -129,6 +129,9 @@ class WaylandChannel {
+   // in addition to forwarding the data given by `receive`.  The `handle_pipe`
+   // function must be called the case of `out_read_pipe` event.
+   //
++  // Transfers may be proxied concurrently, so the caller must keep polling
++  // every outstanding `out_read_pipe`, not just the most recent one.
++  //
+   // In both above cases, if the returned `receive.data_size` is than greater
+   // zero, then the caller takes ownership of `receive.data` and must free(..)
+   // the memory when appropriate.
