@@ -1,5 +1,15 @@
 use serde::{Deserialize, Serialize};
-use std::{env, fs, path::{PathBuf}};
+use std::{fs, path::PathBuf};
+
+pub const GIB: u64 = 1 << 30;
+
+pub fn get_data_dir() -> PathBuf {
+    gtk::glib::user_data_dir().join("bubbles")
+}
+
+pub fn vm_dir(bubble: &str) -> PathBuf {
+    get_data_dir().join("vms").join(bubble)
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct BubbleConfig {
@@ -20,12 +30,8 @@ impl Default for BubbleConfig {
     }
 }
 
-pub fn get_data_dir() -> PathBuf {
-    PathBuf::from(env::var("XDG_DATA_HOME").expect("XDG_DATA_HOME")).join("bubbles")
-}
-
 fn config_path(vm_name: &str) -> PathBuf {
-    get_data_dir().join("vms").join(vm_name).join("config.json")
+    vm_dir(vm_name).join("config.json")
 }
 
 pub fn load_config(vm_name: &str) -> BubbleConfig {
