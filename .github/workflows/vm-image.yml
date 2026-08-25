@@ -88,6 +88,7 @@ jobs:
               "libglib2.0-bin",
               "docker.io",
               "dconf-cli",
+              "dbus-user-session",
               "nix-bin"
             ]}]
             ' | yq -y '
@@ -146,6 +147,11 @@ jobs:
                 "generator": "dump",
                 "path": "/etc/nix/nix.conf",
                 "content": "sandbox = true\nexperimental-features = nix-command flakes"
+              },
+              {
+                "generator": "dump",
+                "path": "/etc/polkit-1/rules.d/50-bubbles.rules",
+                "content": "polkit.addRule(function(action, subject) {\n    if (subject.isInGroup(\"sudo\")) {\n        return polkit.Result.YES;\n    }\n});\n"
               },
               {
                 "generator": "copy",
@@ -244,9 +250,8 @@ jobs:
           export PATH=\$PATH:\$HOME/.nix-profile/bin
           export HISTSIZE=10000
           export HISTCONTROL=ignoreboth
-          export WAYLAND_DISPLAY=wayland-0
-          if [ -f "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh" ] ; then
-            source "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh"
+          if [ -f "\$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh" ] ; then
+            source "\$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh"
           fi
           echo -ne "\033]0;\$HOSTNAME\007"
           EOF

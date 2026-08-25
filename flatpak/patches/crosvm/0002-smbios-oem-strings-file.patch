@@ -1,0 +1,136 @@
+diff --git a/arch/src/lib.rs b/arch/src/lib.rs
+index 25e6413..a469f6e 100644
+--- a/arch/src/lib.rs
++++ b/arch/src/lib.rs
+@@ -1499,6 +1499,46 @@ pub struct SmbiosOptions {
+     /// Additional OEM strings to add to SMBIOS table.
+     #[serde(default)]
+     pub oem_strings: Vec<String>,
++
++    /// File to read further OEM strings from, one per line. Keeps them off the
++    /// command line, which other processes can read.
++    pub oem_strings_file: Option<PathBuf>,
++}
++
++impl SmbiosOptions {
++    /// Appends the strings in `oem_strings_file` to `oem_strings` and clears the option. Done
++    /// while the command line is converted, so that a bad file fails with the other argument
++    /// errors instead of in `setup_smbios`.
++    pub fn read_oem_strings_file(&mut self) -> std::result::Result<(), String> {
++        use std::io::Read;
++        use std::io::Seek;
++
++        let Some(path) = self.oem_strings_file.take() else {
++            return Ok(());
++        };
++        let error = |e: &dyn std::fmt::Display| {
++            format!("failed to read oem-strings-file {}: {e}", path.display())
++        };
++        let mut file =
++            base::open_file_or_duplicate(&path, std::fs::OpenOptions::new().read(true))
++                .map_err(|e| error(&e))?;
++        // A /proc/self/fd/N is duplicated, not reopened, so it shares its offset with the
++        // writer, which likely left it at the end.
++        let mut content = String::new();
++        file.rewind()
++            .and_then(|()| file.read_to_string(&mut content))
++            .map_err(|e| error(&e))?;
++        if content.contains('\0') {
++            return Err(error(&"contains a null character"));
++        }
++        self.oem_strings.extend(
++            content
++                .lines()
++                .filter(|line| !line.is_empty())
++                .map(str::to_string),
++        );
++        Ok(())
++    }
+ }
+ 
+ #[cfg(test)]
+@@ -1508,6 +1548,62 @@ mod tests {
+ 
+     use super::*;
+ 
++    #[test]
++    fn parse_smbios_oem_strings_file() {
++        let res: SmbiosOptions =
++            from_key_values("oem-strings=[a],oem-strings-file=/proc/self/fd/3").unwrap();
++        assert_eq!(res.oem_strings, vec!["a".to_string()]);
++        assert_eq!(res.oem_strings_file, Some(PathBuf::from("/proc/self/fd/3")));
++    }
++
++    #[test]
++    fn read_smbios_oem_strings_file() {
++        use std::io::Write;
++
++        let mut file = tempfile::NamedTempFile::new().unwrap();
++        file.write_all(b"b\n\nc\n").unwrap();
++        let mut options = SmbiosOptions {
++            oem_strings: vec!["a".to_string()],
++            oem_strings_file: Some(file.path().into()),
++            ..Default::default()
++        };
++        options.read_oem_strings_file().unwrap();
++        assert_eq!(options.oem_strings, ["a", "b", "c"]);
++        assert_eq!(options.oem_strings_file, None);
++    }
++
++    // The way a caller passing an fd leaves it: written, with the offset at the end.
++    #[cfg(any(target_os = "android", target_os = "linux"))]
++    #[test]
++    fn read_smbios_oem_strings_file_from_fd() {
++        use std::io::Write;
++
++        use base::AsRawDescriptor;
++
++        let mut file = tempfile().unwrap();
++        file.write_all(b"a\n").unwrap();
++        base::clear_descriptor_cloexec(&file).unwrap();
++        let mut options = SmbiosOptions {
++            oem_strings_file: Some(format!("/proc/self/fd/{}", file.as_raw_descriptor()).into()),
++            ..Default::default()
++        };
++        options.read_oem_strings_file().unwrap();
++        assert_eq!(options.oem_strings, ["a"]);
++    }
++
++    #[test]
++    fn read_smbios_oem_strings_file_rejects_nul() {
++        use std::io::Write;
++
++        let mut file = tempfile::NamedTempFile::new().unwrap();
++        file.write_all(b"a\0b\n").unwrap();
++        let mut options = SmbiosOptions {
++            oem_strings_file: Some(file.path().into()),
++            ..Default::default()
++        };
++        assert!(options.read_oem_strings_file().is_err());
++    }
++
+     #[test]
+     fn parse_pstore() {
+         let res: Pstore = from_key_values("path=/some/path,size=16384").unwrap();
+diff --git a/src/crosvm/cmdline.rs b/src/crosvm/cmdline.rs
+index 30be42c..0aeb4b7 100644
+--- a/src/crosvm/cmdline.rs
++++ b/src/crosvm/cmdline.rs
+@@ -1992,6 +1992,8 @@ pub struct RunCommand {
+     ///     serial-number=STRING - System serial number.
+     ///     uuid=UUID - System UUID.
+     ///     oem-strings=[...] - Free-form OEM strings (SMBIOS type 11).
++    ///     oem-strings-file=PATH - File with further OEM strings,
++    ///         one per line.
+     pub smbios: Option<SmbiosOptions>,
+ 
+     #[cfg(all(
+@@ -3187,6 +3189,8 @@ impl TryFrom<RunCommand> for super::config::Config {
+             cfg.no_rtc = cmd.no_rtc.unwrap_or_default();
+             cfg.smbios = cmd.smbios.unwrap_or_default();
+ 
++            cfg.smbios.read_oem_strings_file()?;
++
+             if let Some(pci_start) = cmd.pci_start {
+                 if cfg.pci_config.mem.is_some() {
+                     return Err("--pci-start cannot be used with --pci mem=[...]".to_string());

@@ -6,5 +6,6 @@ license = "MIT"
 
 [dependencies]
 axum = "0.8.1"
+gio = "0.21.5"
 serde = { version = "1.0", features = ["derive"] }
 tokio = { version = "1.0", features = ["full"] }
