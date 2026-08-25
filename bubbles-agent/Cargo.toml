@@ -5,6 +5,10 @@ edition = "2021"
 license = "MIT"
 
 [dependencies]
-axum = "0.8.1"
+axum = { version = "0.8.1", default-features = false, features = ["json"] }
+gio = "0.21.5"
+libc = "0.2"
 serde = { version = "1.0", features = ["derive"] }
-tokio = { version = "1.0", features = ["full"] }
+tokio = { version = "1.0", features = ["rt-multi-thread", "net", "io-util", "process"] }
+hyper = { version = "1.11.1", features = ["http2", "server"] }
+hyper-util = { version = "0.1.20", features = ["tokio", "service"] }
