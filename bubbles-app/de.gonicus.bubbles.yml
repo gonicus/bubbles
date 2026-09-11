@@ -39,6 +39,7 @@ modules:
           - patches/crosvm/0003-seccomp-madvise-guard.patch
           - patches/crosvm/0004-remove-wayland-display.patch
       - crosvm-cargo-sources.json
+
   - name: passt
     buildsystem: simple
     build-commands:
