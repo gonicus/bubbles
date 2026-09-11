@@ -22,10 +22,7 @@
     <p>Includes and starts a Gnome Console (kgx), but that is just the adjustable default</p>
   </description>
   <url type="homepage">https://github.com/gonicus/bubbles</url>
-  <content_rating type="oars-1.1">
-    <content_attribute id="social-chat">intense</content_attribute>
-    <content_attribute id="social-audio">intense</content_attribute>
-  </content_rating>
+  <content_rating type="oars-1.1"/>
   <developer id="de.gonicus">
     <name>Joshua Mühlfort</name>
   </developer>
