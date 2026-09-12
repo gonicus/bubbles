@@ -54,6 +54,7 @@ modules:
       - type: patch
         paths:
           - patches/passt/0000-tolerate-denied-namespaces.patch
+          - patches/passt/0001-require-default-route-for-template.patch
   - name: bubbles
     buildsystem: simple
     build-options:
