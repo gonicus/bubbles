@@ -2,27 +2,27 @@
 
 # Bubbles - lightweight Linux working environments
 
-**Quick+Simple**:
-
-  - Starts up in just a few seconds
-  - Simple UI
-
-**Integrated+Isolated**:
+**Integrated, yet Isolated**:
 
   - Wayland windows are managed on the host compositor, Networking is transparent
   - Using sub-sandboxing plus strong KVM isolation boundary
 
-**Powerful+Unprivileged**:
+**Powerful, yet Unprivileged**:
 
   - Run containers effortlessly within a Bubble
-  - Bubbles runs as sandboxed, least-privilege flatpak on Linux (Opinionated setups like Fedora Atomic and NixOS included)
+  - Bubbles runs as sandboxed, least-privilege Flatpak on any modern Linux (Opinionated distributions like Fedora Atomic and NixOS included)
 
-**Immutable+Mutable**:
+**Immutable, yet Mutable**:
 
   - Includes Nix to enable version-controlled, reproducible work environments
   - If Nix is too strict, fall back on Debian's apt or install any other package manager
 
-**Persistent+Disposable**:
+**Quick, yet Full-featured**:
+
+  - Starts in just a few seconds
+  - Access to a real Debian installation
+
+**Persistent, yet Disposable**:
 
   - Run long-living environments: Separate distinct contexts persistently
   - Run quick experiments: Do not break your host, break your Bubble and discard it
@@ -69,6 +69,10 @@ The installed system is a Debian Trixie with preinstalled...
 On first boot, it will fetch a nerdfont.
 
 ### Cheat sheet
+
+#### Quick bubble creation
+
+Not a requirement, but using btrfs does seem to apply CopyOnWrite to disk images, so Bubble creation is quicker.
 
 #### Install home-manager (recommended, it's worth it)
 
