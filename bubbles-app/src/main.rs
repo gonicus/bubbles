@@ -546,9 +546,11 @@ impl AsyncFactoryComponent for VmEntry {
                                 passt_args.push(OsStr::new("--tcp-ports"));
                                 passt_args.push(OsStr::new(&ports_joined));
                             }
+                            passt_args.push(OsStr::new("--map-host-loopback"));
                             if config.map_host_loopback {
-                                passt_args.push(OsStr::new("--map-host-loopback"));
                                 passt_args.push(OsStr::new("169.254.0.1"));
+                            } else {
+                                passt_args.push(OsStr::new("none"));
                             }
                             let passt_process = spawn_sandboxed(
                                 &[],
