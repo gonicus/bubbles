@@ -2,23 +2,30 @@
 
 # Bubbles - lightweight Linux working environments
 
-**Quick**: Starts up in just a few seconds
+**Quick+Simple**:
 
-**Integrated**: Wayland windows are managed on the host compositor, Networking is transparent
+  - Starts up in just a few seconds
+  - Simple UI
 
-**Rootless**: Does not require host root access
+**Integrated+Isolated**:
 
-**Flexible**: Run containers within a Bubble - without hassle
+  - Wayland windows are managed on the host compositor, Networking is transparent
+  - Using sub-sandboxing plus strong KVM isolation boundary
 
-**Disposable**: Do not break your host; Break your bubble and discard it
+**Powerful+Unprivileged**:
 
-**Isolated**: Running as least-privilege flatpak; Strong KVM isolation boundary
+  - Run containers effortlessly within a Bubble
+  - Bubbles runs as sandboxed, least-privilege flatpak on Linux (Opinionated setups like Fedora Atomic and NixOS included)
 
-**Immutable**: Includes Nix to enable version-controlled, reproducible work environments
+**Immutable+Mutable**:
 
-**Mutable**: If Nix is too strict, fall back on Debian's apt or install any other package manager
+  - Includes Nix to enable version-controlled, reproducible work environments
+  - If Nix is too strict, fall back on Debian's apt or install any other package manager
 
-**Atomic Desktop Friendly**: Works within e. g. Fedora Atomic desktops
+**Persistent+Disposable**:
+
+  - Run long-living environments: Separate distinct contexts persistently
+  - Run quick experiments: Do not break your host, break your Bubble and discard it
 
 <img src="bubbles-app/demo.png"/>
 
