@@ -6,6 +6,7 @@ command: bubbles
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust-stable
   - org.freedesktop.Sdk.Extension.llvm20
+
 finish-args:
   - --share=ipc
   - --socket=wayland
@@ -15,6 +16,7 @@ finish-args:
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin
   no-debuginfo: true
+
 modules:
   - name: crosvm
     buildsystem: simple
@@ -56,6 +58,7 @@ modules:
         paths:
           - patches/passt/0000-tolerate-denied-namespaces.patch
           - patches/passt/0001-require-default-route-for-template.patch
+
   - name: bubbles
     buildsystem: simple
     build-options:
