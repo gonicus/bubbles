@@ -2,6 +2,16 @@
 
 # Bubbles - lightweight Linux working environments
 
+**Quick, yet Full-featured**:
+
+  - Starts an instance in just a few seconds
+  - Access to a real Debian installation
+
+**Persistent, yet Disposable**:
+
+  - Run long-living environments: Separate distinct contexts persistently, while not cluttering your host
+  - Run quick experiments: Do not break your host, break your Bubble and discard it
+
 **Integrated, yet Isolated**:
 
   - Wayland windows are managed on the host compositor, Networking is transparent
@@ -16,16 +26,6 @@
 
   - Includes Nix to enable version-controlled, reproducible work environments
   - If Nix is too strict, fall back on Debian's apt or install any other package manager
-
-**Quick, yet Full-featured**:
-
-  - Starts in just a few seconds
-  - Access to a real Debian installation
-
-**Persistent, yet Disposable**:
-
-  - Run long-living environments: Separate distinct contexts persistently
-  - Run quick experiments: Do not break your host, break your Bubble and discard it
 
 <img src="bubbles-app/demo.png"/>
 
