@@ -1,0 +1,9 @@
+accepted = [
+    "Apache-2.0",
+    "BSD-3-Clause",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "ISC",
+    "Unicode-3.0",
+    "Unicode-DFS-2016"
+]
