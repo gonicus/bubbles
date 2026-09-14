@@ -553,6 +553,8 @@ impl AsyncFactoryComponent for VmEntry {
                             } else {
                                 passt_args.push(OsStr::new("none"));
                             }
+                            passt_args.push(OsStr::new("--dns-forward"));
+                            passt_args.push(OsStr::new("169.254.0.1"));
                             let passt_process = spawn_sandboxed(
                                 &[],
                                 SandboxNet::Shared,
