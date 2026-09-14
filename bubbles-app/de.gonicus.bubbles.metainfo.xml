@@ -46,19 +46,19 @@
   </branding>
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/gonicus/bubbles/62ed1b41abde903baa9b26382132b890cc0db825/bubbles-app/demo.png</image>
+      <image>https://raw.githubusercontent.com/gonicus/bubbles/9a6c344813ad6884288e54fff2832719494dfab5/bubbles-app/demo.png</image>
       <caption>Running bubble, with executed default terminal emulator (Gnome Console)</caption>
     </screenshot>
     <screenshot>
-      <image>https://raw.githubusercontent.com/gonicus/bubbles/62ed1b41abde903baa9b26382132b890cc0db825/bubbles-app/screenshots/01-pre-create.png</image>
+      <image>https://raw.githubusercontent.com/gonicus/bubbles/9a6c344813ad6884288e54fff2832719494dfab5/bubbles-app/screenshots/01-pre-create.png</image>
       <caption>Base app, before having created any bubble</caption>
     </screenshot>
     <screenshot>
-      <image>https://raw.githubusercontent.com/gonicus/bubbles/62ed1b41abde903baa9b26382132b890cc0db825/bubbles-app/screenshots/02-create.png</image>
+      <image>https://raw.githubusercontent.com/gonicus/bubbles/9a6c344813ad6884288e54fff2832719494dfab5/bubbles-app/screenshots/02-create.png</image>
       <caption>Bubble creation prompt</caption>
     </screenshot>
     <screenshot>
-      <image>https://raw.githubusercontent.com/gonicus/bubbles/62ed1b41abde903baa9b26382132b890cc0db825/bubbles-app/screenshots/03-settings.png</image>
+      <image>https://raw.githubusercontent.com/gonicus/bubbles/9a6c344813ad6884288e54fff2832719494dfab5/bubbles-app/screenshots/03-settings.png</image>
       <caption>Bubble settings dialog</caption>
     </screenshot>
   </screenshots>
