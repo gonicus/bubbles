@@ -28,18 +28,19 @@ pub fn get_data_dir() -> PathBuf {
     base.join("bubbles")
 }
 
-// Each vhost-user link gets one number, used by both its ends, since it is
-// baked into their argv. 3 is the first descriptor free after stdio.
+// static FD numbers
+// stdio uses 0, 1, 2; start at 3
 const GPU_VHOST_FD: i32 = 3;
 const NET_VHOST_FD: i32 = 4;
-// crosvm's own sandbox holds no path we could name, so everything it opens
-// arrives the same way. crosvm dups these rather than reopening them, except
-// for the KVM node, which it reopens through the link.
 const KVM_FD: i32 = 5;
 const DISK_FD: i32 = 6;
 const INITRD_FD: i32 = 7;
 const KERNEL_FD: i32 = 8;
 
+// Mirror relevant flatpak-spawn's sandbox flag numbers
+// Newer flatpak portal versions support non-magic-number flags
+// TODO: Once newer flatpak versions can be expected to run everywhere (-> is in Debian Stable),
+// re-apply b96b5d8
 const SANDBOX_DISPLAY: u32 = 1;
 const SANDBOX_GPU: u32 = 4;
 
