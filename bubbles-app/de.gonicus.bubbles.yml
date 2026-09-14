@@ -71,6 +71,8 @@ modules:
       - install -Dm644 de.gonicus.bubbles.metainfo.xml /app/share/metainfo/de.gonicus.bubbles.metainfo.xml
       - install -Dm644 de.gonicus.bubbles.svg /app/share/icons/hicolor/scalable/apps/de.gonicus.bubbles.svg
       - install -Dm644 LICENSE /app/share/licenses/de.gonicus.bubbles/bubbles/LICENSE
+      - install -Dm644 CROSVM_CARGO_DEPENDENCIES_LICENSES.html /app/share/licenses/de.gonicus.bubbles/crosvm/THIRD_PARTY_LICENSES.html
+      - install -Dm644 BUBBLES_CARGO_DEPENDENCIES_LICENSES.html /app/share/licenses/de.gonicus.bubbles/bubbles/THIRD_PARTY_LICENSES.html
     sources:
       - type: dir
         path: .
