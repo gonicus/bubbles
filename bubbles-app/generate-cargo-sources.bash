@@ -13,7 +13,7 @@ GENERATOR_COMMIT="4d5e760321236bd96fc1c6db9ec94c336600c114"
 GENERATOR_URL="https://raw.githubusercontent.com/flatpak/flatpak-builder-tools/${GENERATOR_COMMIT}/cargo/flatpak-cargo-generator.py"
 
 CROSVM_URL="https://chromium.googlesource.com/crosvm/crosvm"
-CROSVM_COMMIT="a96cb379acf55a75887cbba190666e7d22ff9dbf"
+CROSVM_COMMIT="b6795499002ad04613263ae49173c7b6b474c6f8"
 
 WORKDIR=""
 cleanup() { [ -n "$WORKDIR" ] && rm -rf "$WORKDIR"; return 0; }
