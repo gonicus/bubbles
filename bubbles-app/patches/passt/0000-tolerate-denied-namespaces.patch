@@ -1,8 +1,8 @@
 diff --git a/isolation.c b/isolation.c
-index c944fb3..1efa092 100644
+index 94cbe7f..5d88e21 100644
 --- a/isolation.c
 +++ b/isolation.c
-@@ -261,7 +261,7 @@ void isolate_user(uid_t uid, gid_t gid, bool use_userns, const char *userns,
+@@ -337,7 +337,7 @@ void isolate_user(const struct ctx *c, uid_t uid, gid_t gid, bool use_userns,
  
  	} else if (use_userns) { /* Create and join a new userns */
  		if (unshare(CLONE_NEWUSER) != 0)
@@ -11,7 +11,7 @@ index c944fb3..1efa092 100644
  	}
  
  	/* Joining a new userns gives us full capabilities; drop the
-@@ -316,8 +316,11 @@ int isolate_prefork(const struct ctx *c)
+@@ -399,8 +399,11 @@ int isolate_prefork(const struct ctx *c)
  		flags |= CLONE_NEWPID;
  
  	if (unshare(flags)) {
@@ -25,7 +25,7 @@ index c944fb3..1efa092 100644
  	}
  
  	if (mount("", "/", "", MS_UNBINDABLE | MS_REC, NULL)) {
-@@ -350,6 +353,7 @@ int isolate_prefork(const struct ctx *c)
+@@ -440,6 +443,7 @@ int isolate_prefork(const struct ctx *c)
  	/* Now that initialization is more-or-less complete, we can
  	 * drop further capabilities
  	 */
