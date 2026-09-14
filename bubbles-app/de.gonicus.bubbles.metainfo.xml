@@ -8,18 +8,32 @@
   <project_license>MIT</project_license>
   <description>
     <p>Bubbles: Lightweight Linux working environments with seamless Wayland and Networking integration</p>
-    <ul>
-      <li>Quick: Starts up in just a few seconds</li>
-      <li>Integrated: Wayland windows are managed on the host compositor, Networking is transparent</li>
-      <li>Rootless: Does not require host root access</li>
-      <li>Flexible: Run containers within a Bubble - without hassle</li>
-      <li>Disposable: Do not break your host; Break your bubble and discard it</li>
-      <li>Isolated: Running as least-privilege flatpak; Strong KVM isolation boundary</li>
-      <li>Immutable: Includes Nix to enable version-controlled, reproducible work environments</li>
-      <li>Mutable: If Nix is too strict, fall back on Debian's apt or install any other package manager</li>
-      <li>Atomic Desktop Friendly: Works within e. g. Fedora Atomic desktops</li>
-    </ul>
     <p>Includes and starts a Gnome Console (kgx), but that is just the adjustable default</p>
+    <p>Quick, yet Full-featured:</p>
+    <ul>
+      <li>Starts an instance in just a few seconds</li>
+      <li>Access to a real Debian installation</li>
+    </ul>
+    <p>Persistent, yet Disposable:</p>
+    <ul>
+      <li>Run long-living environments: Separate distinct contexts persistently, while not cluttering your host</li>
+      <li>Run quick experiments: Do not break your host, break your Bubble and discard it</li>
+    </ul>
+    <p>Integrated, yet Isolated:</p>
+    <ul>
+      <li>Wayland windows are managed on the host compositor, Networking is transparent</li>
+      <li>Using sub-sandboxing plus strong KVM isolation boundary</li>
+    </ul>
+    <p>Powerful, yet Unprivileged:</p>
+    <ul>
+      <li>Run containers effortlessly within a Bubble</li>
+      <li>Bubbles runs as sandboxed, least-privilege Flatpak on any modern Linux (Opinionated distributions like Fedora Atomic and NixOS included)</li>
+    </ul>
+    <p>Immutable, yet Mutable:</p>
+    <ul>
+      <li>Includes Nix to enable version-controlled, reproducible work environments</li>
+      <li>If Nix is too strict, fall back on Debian's apt or install any other package manager</li>
+    </ul>
   </description>
   <url type="homepage">https://github.com/gonicus/bubbles</url>
   <content_rating type="oars-1.1"/>
@@ -49,8 +63,8 @@
     </screenshot>
   </screenshots>
   <releases>
-    <release version="1.1.0" date="2026-09-10"/>
-    <release version="1.1.1" date="2026-09-12"/>
     <release version="1.1.2" date="2026-09-12"/>
+    <release version="1.1.1" date="2026-09-12"/>
+    <release version="1.1.0" date="2026-09-10"/>
   </releases>
 </component>
