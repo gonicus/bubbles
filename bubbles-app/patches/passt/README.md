@@ -1,3 +1,3 @@
-These patches modify passt source code.
+These patches modify passt source code and are released under the same licenses as upstream uses.
 
-`passt` is distributed under the terms of its [LICENSE notice](./LICENSE) of their original authors. The license notice is taken directly from the `passt` source tree; Chose the BSD license to be more consistent with the crosvm license.
+`passt` is distributed under the terms of its LICENSES of their original authors. The license notices are taken directly from the `passt` source tree: See [GPL-2.0-or-later.txt](./GPL-2.0-or-later.txt) and [BSD-3-Clause.txt](./BSD-3-Clause.txt).

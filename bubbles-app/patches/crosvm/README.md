@@ -1,4 +1,4 @@
-These patches modify crosvm source code.
+These patches modify crosvm source code and are released under the same license as upstream uses.
 
 `crosvm` is distributed under the terms of its [LICENSE notice](./LICENSE) of their original authors. The license notice is taken directly from https://chromium.googlesource.com/crosvm/crosvm/+/refs/heads/main/LICENSE
 
