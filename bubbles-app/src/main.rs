@@ -16,7 +16,6 @@ use std::os::fd::{BorrowedFd, OwnedFd};
 use std::os::unix::net::UnixStream;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener};
 use libc::SIGTERM;
-use tokio::io::{AsyncWriteExt, AsyncReadExt};
 
 use preferences::{BubbleSettingsDialog, BubbleSettingsMsg, BubbleSettingsOutput};
 
@@ -108,19 +107,6 @@ fn claim_agent_addr() -> SocketAddr {
     probe.local_addr().expect("the probe socket to have an address")
 }
 
-async fn agent_http(addr: SocketAddr, method: &str, path: &str) -> std::io::Result<String> {
-    let mut stream = tokio::net::TcpStream::connect(addr).await?;
-    // Content-Length: 0 included for POST correctness; harmless on GET
-    let req = format!(
-        "{} {} HTTP/1.0\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n",
-        method, path
-    );
-    stream.write_all(req.as_bytes()).await?;
-    let mut buf = Vec::new();
-    stream.read_to_end(&mut buf).await?;
-    Ok(String::from_utf8_lossy(&buf).into_owned())
-}
-
 struct CreateBubbleDialog {
 }
 
@@ -148,9 +134,10 @@ fn determine_download_status() -> ImageStatus {
 }
 
 pub async fn wait_until_ready(addr: SocketAddr) {
+    let client = reqwest::Client::new();
     loop {
-        match tokio::time::timeout(std::time::Duration::from_secs(2), agent_http(addr, "GET", "/ready")).await {
-            Ok(Ok(response)) if response.contains("200") => return,
+        match tokio::time::timeout(std::time::Duration::from_secs(2), client.get(format!("http://{addr}/ready")).send()).await {
+            Ok(Ok(response)) if response.status() == 200 => return,
             _ => {
                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             }
@@ -158,12 +145,20 @@ pub async fn wait_until_ready(addr: SocketAddr) {
     }
 }
 
-pub async fn request_shutdown(addr: SocketAddr) {
-    agent_http(addr, "POST", "/shutdown").await.ok();
+pub async fn request_shutdown(addr: SocketAddr) -> bool {
+    let client = reqwest::Client::new();
+    return match client.post(format!("http://{addr}/shutdown")).send().await {
+        Ok(response) if response.status() == 201 => true,
+        _ => false
+    };
 }
 
-pub async fn request_terminal(addr: SocketAddr) {
-    agent_http(addr, "POST", "/spawn-terminal").await.ok();
+pub async fn request_terminal(addr: SocketAddr) -> bool {
+    let client = reqwest::Client::new();
+    return match client.post(format!("http://{addr}/spawn-terminal")).send().await {
+        Ok(response) if response.status() == 201 => true,
+        _ => false
+    };
 }
 
 // Pinned VM image release. Bump both when publishing a new vm-image-* release:
@@ -509,9 +504,10 @@ impl AsyncFactoryComponent for VmEntry {
                 match self.value.status {
                     VMStatus::Running => {
                         let agent_addr = self.value.agent_addr.expect("a running bubble to hold an agent address");
-                        sender.output(VmStateUpdate::Update(index, VMStatus::InFlux)).unwrap();
                         relm4::spawn_local(async move {
-                            request_shutdown(agent_addr).await;
+                            if request_shutdown(agent_addr).await {
+                                sender.output(VmStateUpdate::Update(index, VMStatus::InFlux)).unwrap();
+                            }
                         });
                     },
                     VMStatus::InFlux => {},
