@@ -38,8 +38,8 @@ const KERNEL_FD: i32 = 8;
 
 // Mirror relevant flatpak-spawn's sandbox flag numbers
 // Newer flatpak portal versions support non-magic-number flags
-// TODO: Once newer flatpak versions can be expected to run everywhere (-> is in Debian Stable),
-// re-apply b96b5d8
+// TODO: Once newer flatpak versions can be expected to run everywhere (-> is in Debian Stable), re-apply b96b5d8
+// OR: Refactor to use call DBUS interface directly
 const SANDBOX_DISPLAY: u32 = 1;
 const SANDBOX_GPU: u32 = 4;
 
@@ -50,10 +50,7 @@ fn vhost_user_pair() -> (OwnedFd, OwnedFd) {
     (backend.into(), frontend.into())
 }
 
-// Run the argv in a portal sub-sandbox, which holds none of our permissions
-// except the `flags` bits. Network is not one of those bits, so it stays shared
-// unless denied here. bwrap refuses to start if it cannot chdir to the cwd it
-// inherits, which is not a path that exists in there.
+// Call process using "flatpak-spawn --sandbox" and given permissions
 fn spawn_sandboxed(
     flags: &[u32],
     net: SandboxNet,
@@ -99,8 +96,8 @@ fn wayland_sock_path() -> PathBuf {
 
 const AGENT_PORT: u16 = 11111;
 
-// Only the guest side is pinned to AGENT_PORT: inside a bubble that port is
-// already held by that bubble's own agent, on every address.
+// While inside the bubble, the AGENT_PORT is used for the agent, at the host side,
+// claim_agent_addr delivers a free random port to be used for agent forwarding
 fn claim_agent_addr() -> SocketAddr {
     let probe = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
         .expect("a free loopback port for the agent");
@@ -228,7 +225,7 @@ async fn download_image() {
             target_dir.as_os_str(),
         ], SubprocessFlags::empty()).await?;
 
-        // Step 4: expand disk (native Rust, no truncate binary needed)
+        // Step 4: expand disk
         let f = tokio::fs::OpenOptions::new().write(true).open(&raw_path).await
             .map_err(|e| format!("could not open disk image: {e}"))?;
         let current_size = f.metadata().await
