@@ -62,6 +62,10 @@
       <caption>Bubble settings dialog</caption>
     </screenshot>
   </screenshots>
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </supports>
   <releases>
     <release version="1.2.1" date="2026-09-15"/>
     <release version="1.2.0" date="2026-09-15"/>
