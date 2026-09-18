@@ -23,7 +23,6 @@ modules:
       append-path: /usr/lib/sdk/llvm20/bin
       env:
         CARGO_HOME: /run/build/crosvm/cargo
-        LIBCLANG_PATH: /usr/lib/sdk/llvm20/lib
     build-commands:
       - cargo --offline build --release
       - install -Dm755 target/release/crosvm /app/bin/crosvm
