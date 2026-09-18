@@ -828,6 +828,15 @@ impl SimpleComponent for App {
                 self.create_bubble_dialog.widgets().dialog.close();
             }
             AppMsg::CreateNewBubble(name) => {
+                let existing_names: Vec<String> = self.vms.guard()
+                    .iter()
+                    .filter_map(|entry| entry.map(|e| e.value.name.clone()))
+                    .collect();
+
+                if existing_names.contains(&name) {
+                    println!("vm already exists. Skipping");
+                    return;
+                }
                 self.currently_creating_bubble = true;
                 spawn(async move {
                     create_vm(name).await;
