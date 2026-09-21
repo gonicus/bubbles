@@ -437,11 +437,9 @@ impl AsyncFactoryComponent for VmEntry {
             add_prefix = &gtk::Image {
                 set_icon_name: Some("computer-symbolic")
             },
-            add_suffix = &gtk::Spinner {
+            add_suffix = &relm4::adw::Spinner {
                 #[watch]
                 set_visible: self.value.status == VMStatus::InFlux,
-                #[watch]
-                set_spinning: self.value.status == VMStatus::InFlux,
             },
             add_suffix = &gtk::Box {
                 set_orientation: gtk::Orientation::Horizontal,
@@ -695,9 +693,9 @@ impl SimpleComponent for App {
                         set_tooltip_text: Some("Create new bubble"),
                         connect_clicked => AppMsg::ShowBubbleCreationDialog,
                     },
-                    pack_end = &gtk::Spinner{
+                    pack_end = &relm4::adw::Spinner{
                         #[watch]
-                        set_spinning: model.currently_creating_bubble
+                        set_visible: model.currently_creating_bubble
                     },
                 },
                 #[wrap(Some)]
