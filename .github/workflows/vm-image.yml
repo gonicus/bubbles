@@ -137,6 +137,11 @@ jobs:
               },
               {
                 "generator": "copy",
+                "path": "/usr/local/share/fonts/",
+                "source": "./usrlocalsharefonts"
+              },
+              {
+                "generator": "copy",
                 "path": "/opt/post-files.bash",
                 "source": "./post-files.bash"
               },
@@ -184,7 +189,6 @@ jobs:
           rm /opt/home-manager-bin
 
           systemctl enable bubbles.service
-          systemctl enable firstboot.service
 
           mkdir -p /var/lib/systemd/linger
           touch /var/lib/systemd/linger/user
@@ -203,20 +207,12 @@ jobs:
           WantedBy=multi-user.target
           EOF
 
-          cat > etcsystemdsystem/firstboot.service <<EOF
-          [Unit]
-          Description=FirstBoot
-          ConditionFirstBoot=yes
-          After=systemd-firstboot.service
-
-          [Service]
-          Type=oneshot
-          RemainAfterExit=true
-          ExecStart=/bin/bash -c 'ls /usr/local/share/fonts/README.md || (cd /usr/local/share/fonts && curl -sSL -O https://github.com/ryanoasis/nerd-fonts/releases/download/v3.3.0/FiraCode.zip && unzip FiraCode.zip && rm FiraCode.zip)'
-
-          [Install]
-          WantedBy=default.target
-          EOF
+          # FiraCode Nerd Font is OFL 1.1; LICENSE ships alongside the .ttf files
+          curl -sSL -o FiraCode.zip https://github.com/ryanoasis/nerd-fonts/releases/download/v3.3.0/FiraCode.zip
+          echo "89978e6f870d044286a339161d5ed961569744b1cd2afee62337fa140cd0b397  FiraCode.zip" | sha256sum -c -
+          mkdir usrlocalsharefonts
+          unzip -d usrlocalsharefonts FiraCode.zip
+          rm FiraCode.zip
 
           cat > etcsystemduser/sommelier.service <<EOF
           [Unit]
