@@ -19,9 +19,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y flatpak flatpak-builder
           flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-          flatpak install --user -y org.gnome.Platform//50 org.gnome.Sdk//50 \
-            org.freedesktop.Sdk.Extension.rust-stable//25.08 \
-            org.freedesktop.Sdk.Extension.llvm20//25.08
+          flatpak install --user -y org.gnome.Platform//51 org.gnome.Sdk//51 \
+            org.freedesktop.Sdk.Extension.rust-stable//26.08 \
+            org.freedesktop.Sdk.Extension.llvm22//26.08
 
       - name: Build Flatpak
         run: |
