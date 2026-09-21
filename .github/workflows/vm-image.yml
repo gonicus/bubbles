@@ -48,6 +48,12 @@ jobs:
           name: sommelier
           path: /usr/local/bin/sommelier
           retention-days: 1
+      - name: 'Upload License'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sommelier-license
+          path: platform2/LICENSE
+          retention-days: 1
   build-vm:
     needs:
     - build-agent
@@ -139,6 +145,11 @@ jobs:
                 "generator": "copy",
                 "path": "/usr/local/share/fonts/",
                 "source": "./usrlocalsharefonts"
+              },
+              {
+                "generator": "copy",
+                "path": "/usr/local/share/doc/sommelier/",
+                "source": "./usrlocalsharedocsommelier"
               },
               {
                 "generator": "copy",
@@ -267,11 +278,21 @@ jobs:
           echo -ne "\033]0;\$HOSTNAME\007"
           EOF
 
-      - name: Download bubbles-agent and sommelier
+      - name: Download bubbles-agent
         uses: actions/download-artifact@v5
         with:
+          name: bubbles-agent
           path: usrlocalbin
-          merge-multiple: true
+      - name: Download sommelier
+        uses: actions/download-artifact@v5
+        with:
+          name: sommelier
+          path: usrlocalbin
+      - name: Download sommelier license
+        uses: actions/download-artifact@v5
+        with:
+          name: sommelier-license
+          path: usrlocalsharedocsommelier
       - run: |
           nix-shell -p distrobuilder --command 'ln -s $(which distrobuilder) distrobuilder'
           nix-shell -p home-manager --command 'which home-manager > home-manager-bin'
