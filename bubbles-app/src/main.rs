@@ -225,14 +225,6 @@ async fn download_image() {
             target_dir.as_os_str(),
         ], SubprocessFlags::empty()).await?;
 
-        // Step 4: expand disk
-        let f = tokio::fs::OpenOptions::new().write(true).open(&raw_path).await
-            .map_err(|e| format!("could not open disk image: {e}"))?;
-        let current_size = f.metadata().await
-            .map_err(|e| format!("could not stat disk image: {e}"))?.len();
-        f.set_len(current_size + 15 * 1024 * 1024 * 1024).await
-            .map_err(|e| format!("could not expand disk image: {e}"))?;
-
         Ok(())
     }.await;
 
@@ -388,16 +380,26 @@ fn load_vms() -> Vec<VM> {
 }
 
 async fn create_vm(name: String) {
-    println!("starting copy");
     let vm_dir_path = config::get_data_dir().join("vms").join(&name);
     tokio::fs::create_dir_all(&vm_dir_path).await.expect("directories to be created");
     let image_base_path = config::get_data_dir().join("images/debian-13");
     let image_disk_path = image_base_path.join("disk.img");
     let image_linuz_path = image_base_path.join("vmlinuz");
     let image_initrd_path = image_base_path.join("initrd.img");
+    println!("copy disk.img...");
     tokio::fs::copy(image_disk_path, vm_dir_path.join("disk.img")).await.expect("disk copy to succeed");
+    println!("copy vmlinuz...");
     tokio::fs::copy(image_linuz_path, vm_dir_path.join("vmlinuz")).await.expect("vmlinuz copy to succeed");
+    println!("copy initrd.img...");
     tokio::fs::copy(image_initrd_path, vm_dir_path.join("initrd.img")).await.expect("initrd copy to succeed");
+
+    println!("resize disk.img...");
+    let f = tokio::fs::OpenOptions::new().write(true).open(vm_dir_path.join("disk.img")).await
+        .expect("open image");
+    let current_size = f.metadata().await.expect("stat image").len();
+    f.set_len(current_size + 15 * 1024 * 1024 * 1024).await.expect("resize image");
+
+    println!("save config...");
     config::save_config(&name, &config::BubbleConfig::default());
     println!("done copy");
 }
