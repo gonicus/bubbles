@@ -65,8 +65,7 @@ The installed system is a Debian Trixie with preinstalled...
 - sommelier
 - starship (configured for nerdfonts)
 - bubbles-agent (simple agent for serving needs of the UI)
-
-On first boot, it will fetch a nerdfont.
+- FiraCode NerdFont
 
 ### Cheat sheet
 
