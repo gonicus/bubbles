@@ -40,6 +40,23 @@
 
 ## Getting started
 
+Install from Flathub:
+
+<p>
+<a href='https://flathub.org/apps/de.gonicus.bubbles'>
+<img width='240' alt='Get it on Flathub' src='https://flathub.org/api/badge?locale=en'/>
+</a>
+
+```
+flatpak install flathub de.gonicus.bubbles
+flatpak run de.gonicus.bubbles
+```
+
+</p>
+
+<details>
+<summary>Alternative: Manual installation of (pre-)releases from Github Releases</summary>
+  
 Download the flatpak file for the latest `app-v*` release from [releases](https://github.com/gonicus/bubbles/releases).
 
 Install it:
@@ -47,6 +64,9 @@ Install it:
 ```
 flatpak install --bundle $HOME/Downloads/de.gonicus.bubbles.flatpak
 ```
+</details>
+
+
 
 ### Run
 
