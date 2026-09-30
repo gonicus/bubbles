@@ -67,6 +67,14 @@
     <control>pointing</control>
   </supports>
   <releases>
+    <release version="1.2.8" date="2026-09-30">
+      <description>
+        <p>Release description</p>
+        <ul>
+          <li>Add terminal emulator tooltip</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.2.7" date="2026-09-21"/>
     <release version="1.2.6" date="2026-09-21"/>
     <release version="1.2.5" date="2026-09-21"/>
