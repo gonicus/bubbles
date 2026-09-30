@@ -475,6 +475,7 @@ impl AsyncFactoryComponent for VmEntry {
                     #[watch]
                     set_sensitive: self.value.status == VMStatus::Running,
                     set_icon_name: "utilities-terminal-symbolic",
+                    set_tooltip_text: Some("Start terminal emulator instance"),
                     connect_clicked[sender, index] => move |_| {
                         sender.input(VmMsg::StartTerminal(index.clone()));
                     }
