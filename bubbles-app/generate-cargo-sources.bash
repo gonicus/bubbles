@@ -32,6 +32,9 @@ generate_sources() {
 echo "==> cargo-sources.json (bubbles app)..."
 generate_sources "$SCRIPT_DIR/Cargo.lock" "$SCRIPT_DIR/cargo-sources.json"
 
+echo "==> agent-cargo-sources.json (bubbles agent)..."
+generate_sources "$SCRIPT_DIR/../bubbles-agent/Cargo.lock" "$SCRIPT_DIR/agent-cargo-sources.json"
+
 echo "==> crosvm-cargo-sources.json (crosvm @ ${CROSVM_COMMIT:0:12}…)..."
 git clone --filter=blob:none --quiet "$CROSVM_URL" "$WORKDIR/crosvm"
 git -C "$WORKDIR/crosvm" checkout --quiet "$CROSVM_COMMIT" -- Cargo.lock
