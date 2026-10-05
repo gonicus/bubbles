@@ -35,6 +35,7 @@ const KVM_FD: i32 = 5;
 const DISK_FD: i32 = 6;
 const INITRD_FD: i32 = 7;
 const KERNEL_FD: i32 = 8;
+const AGENT_DISK_FD: i32 = 9;
 
 // Mirror relevant flatpak-spawn's sandbox flag numbers
 // Newer flatpak portal versions support non-magic-number flags
@@ -102,6 +103,43 @@ fn claim_agent_addr() -> SocketAddr {
     let probe = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
         .expect("a free loopback port for the agent");
     probe.local_addr().expect("the probe socket to have an address")
+}
+
+// The agent is passed as a tar on a read-only disk; the unpacking and running
+// is configured via SMBIOS and kernel parameters
+const AGENT_PAYLOAD_PATH: &str = "/app/share/bubbles/agent.tar";
+// Pinned clear of the slots crosvm assigns itself (00:01.0 to 00:08.0)
+// Avoid populating lower ends in order to prevent conflict with passt's hardcoded address
+const AGENT_DISK_PCI_ADDRESS: &str = "00:10.0";
+
+// /run is noexec in the guest, hence a tmpfs of its own to unpack into.
+const AGENT_MOUNT_UNIT: &str = r"[Unit]
+ConditionPathExists=!/etc/initrd-release
+[Mount]
+What=tmpfs
+Where=/run/bubbles
+Type=tmpfs
+Options=mode=0755,nosuid,nodev
+";
+
+// Started through the ld it ships with, never the guest's.
+const AGENT_SERVICE_UNIT: &str = r"[Unit]
+Description=Bubbles agent
+ConditionPathExists=!/etc/initrd-release
+RequiresMountsFor=/run/bubbles
+BindsTo=dev-disk-by\x2did-virtio\x2dbubbles\x2dagent.device
+After=dev-disk-by\x2did-virtio\x2dbubbles\x2dagent.device
+[Service]
+User=user
+ExecStartPre=+/bin/sh -c 'tar -xf /dev/disk/by-id/virtio-bubbles-agent -C /run/bubbles'
+ExecStart=/run/bubbles/ld-linux-x86-64.so.2 --library-path /run/bubbles /run/bubbles/bubbles-agent
+Restart=on-failure
+";
+
+// Single-quoted, crosvm's key=value parser takes the base64 and the '=' and ':'
+// around it literally.
+fn credential_oem_string(name: &str, content: &str) -> String {
+    format!("'io.systemd.credential.binary:{}={}'", name, gtk::glib::base64_encode(content.as_bytes()))
 }
 
 struct CreateBubbleDialog {
@@ -580,6 +618,7 @@ impl AsyncFactoryComponent for VmEntry {
                             let disk_fd = open_fd(&image_disk_path, true);
                             let initrd_fd = open_fd(&image_initrd_path, false);
                             let kernel_fd = open_fd(&image_linuz_path, false);
+                            let agent_disk_fd = open_fd(Path::new(AGENT_PAYLOAD_PATH), false);
 
                             // Pinning pci address to match image's enp0s7
                             let passt_socket_str = format!("net,socket=/proc/self/fd/{},pci-address=00:07.0", NET_VHOST_FD);
@@ -591,6 +630,15 @@ impl AsyncFactoryComponent for VmEntry {
                             let cpus_str = format!("num-cores={}", config.cpus);
                             let ram_str = format!("{}", config.ram_mb);
                             let hostname_param = format!("systemd.hostname={}", vm_name);
+                            let agent_disk_str = format!(
+                                "/proc/self/fd/{},ro=true,id=bubbles-agent,pci-address={}",
+                                AGENT_DISK_FD, AGENT_DISK_PCI_ADDRESS,
+                            );
+                            let smbios_str = format!(
+                                "oem-strings=[{},{}]",
+                                credential_oem_string("systemd.extra-unit.run-bubbles.mount", AGENT_MOUNT_UNIT),
+                                credential_oem_string("systemd.extra-unit.bubbles-agent.service", AGENT_SERVICE_UNIT),
+                            );
                             let crosvm_args: Vec<&OsStr> = vec![
                                 OsStr::new("/app/bin/crosvm"),
                                 OsStr::new("run"),
@@ -604,6 +652,10 @@ impl AsyncFactoryComponent for VmEntry {
                                 OsStr::new(&hypervisor_str),
                                 OsStr::new("--rwdisk"),
                                 OsStr::new(&disk_str),
+                                OsStr::new("--block"),
+                                OsStr::new(&agent_disk_str),
+                                OsStr::new("--smbios"),
+                                OsStr::new(&smbios_str),
                                 OsStr::new("--initrd"),
                                 OsStr::new(&initrd_str),
                                 // Sandboxing implemented using flatpak sandboxing instead
@@ -616,6 +668,16 @@ impl AsyncFactoryComponent for VmEntry {
                                 OsStr::new("root=/dev/vda2"),
                                 OsStr::new("-p"),
                                 OsStr::new(&hostname_param),
+                                OsStr::new("-p"),
+                                OsStr::new("systemd.wants=bubbles-agent.service"),
+                                // The image's own agent and its proxies, for this boot only:
+                                // started by an older app, the bubble still gets them.
+                                OsStr::new("-p"),
+                                OsStr::new("systemd.mask=bubbles.service"),
+                                OsStr::new("-p"),
+                                OsStr::new("systemd.mask=bubbles-proxy.service"),
+                                OsStr::new("-p"),
+                                OsStr::new("systemd.mask=bubbles-proxy-2.service"),
                                 OsStr::new(&kernel_str),
                             ];
                             let crosvm_process = spawn_sandboxed(
@@ -628,6 +690,7 @@ impl AsyncFactoryComponent for VmEntry {
                                     (disk_fd, DISK_FD),
                                     (initrd_fd, INITRD_FD),
                                     (kernel_fd, KERNEL_FD),
+                                    (agent_disk_fd, AGENT_DISK_FD),
                                 ],
                                 &crosvm_args,
                             );

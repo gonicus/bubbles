@@ -54,6 +54,29 @@ modules:
           - patches/passt/0000-tolerate-denied-namespaces.patch
           - patches/passt/0001-require-default-route-for-template.patch
 
+  # bubbles-agent is put into a tar to be passed to the bubble, libc/ld/... included for self-containment
+  - name: bubbles-agent
+    buildsystem: simple
+    build-options:
+      env:
+        CARGO_HOME: /run/build/bubbles-agent/cargo
+    build-commands:
+      - cargo --offline build --release
+      - install -Dm755 target/release/bubbles-agent payload/bubbles-agent
+      - install -Dm755 -t payload
+        /usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2
+        /usr/lib/x86_64-linux-gnu/libc.so.6
+        /usr/lib/x86_64-linux-gnu/libm.so.6
+        /usr/lib/x86_64-linux-gnu/libgcc_s.so.1
+      - tar --sort=name --owner=0 --group=0 --numeric-owner --mtime=@0 -cf agent.tar -C payload .
+      - install -Dm644 agent.tar /app/share/bubbles/agent.tar
+    sources:
+      - type: dir
+        path: ../bubbles-agent
+        skip:
+          - target
+      - agent-cargo-sources.json
+
   - name: bubbles
     buildsystem: simple
     build-options:
@@ -68,6 +91,7 @@ modules:
       - install -Dm644 LICENSE /app/share/licenses/de.gonicus.bubbles/bubbles/LICENSE
       - install -Dm644 CROSVM_CARGO_DEPENDENCIES_LICENSES.html /app/share/licenses/de.gonicus.bubbles/crosvm/THIRD_PARTY_LICENSES.html
       - install -Dm644 BUBBLES_CARGO_DEPENDENCIES_LICENSES.html /app/share/licenses/de.gonicus.bubbles/bubbles/THIRD_PARTY_LICENSES.html
+      - install -Dm644 AGENT_CARGO_DEPENDENCIES_LICENSES.html /app/share/licenses/de.gonicus.bubbles/bubbles-agent/THIRD_PARTY_LICENSES.html
     sources:
       - type: dir
         path: .
