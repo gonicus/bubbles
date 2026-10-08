@@ -54,7 +54,6 @@ modules:
           - patches/passt/0000-tolerate-denied-namespaces.patch
           - patches/passt/0001-require-default-route-for-template.patch
 
-  # bubbles-agent is put into a tar to be passed to the bubble, libc/ld/... included for self-containment
   - name: bubbles-agent
     buildsystem: simple
     build-options:
@@ -63,11 +62,6 @@ modules:
     build-commands:
       - cargo --offline build --release
       - install -Dm755 target/release/bubbles-agent payload/bubbles-agent
-      - install -Dm755 -t payload
-        /usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2
-        /usr/lib/x86_64-linux-gnu/libc.so.6
-        /usr/lib/x86_64-linux-gnu/libm.so.6
-        /usr/lib/x86_64-linux-gnu/libgcc_s.so.1
       - tar --sort=name --owner=0 --group=0 --numeric-owner --mtime=@0 -cf agent.tar -C payload .
       - install -Dm644 agent.tar /app/share/bubbles/agent.tar
     sources:
