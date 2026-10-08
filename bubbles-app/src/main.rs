@@ -122,7 +122,7 @@ Type=tmpfs
 Options=mode=0755,nosuid,nodev
 ";
 
-// Started through the ld it ships with, never the guest's.
+// Runs on the guest's glibc, built against the runtime's.
 const AGENT_SERVICE_UNIT: &str = r"[Unit]
 Description=Bubbles agent
 ConditionPathExists=!/etc/initrd-release
@@ -132,7 +132,7 @@ After=dev-disk-by\x2did-virtio\x2dbubbles\x2dagent.device
 [Service]
 User=user
 ExecStartPre=+/bin/sh -c 'tar -xf /dev/disk/by-id/virtio-bubbles-agent -C /run/bubbles'
-ExecStart=/run/bubbles/ld-linux-x86-64.so.2 --library-path /run/bubbles /run/bubbles/bubbles-agent
+ExecStart=/run/bubbles/bubbles-agent
 Restart=on-failure
 ";
 
