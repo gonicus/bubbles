@@ -29,11 +29,8 @@ generate_sources() {
     echo "    → $(basename "$2")"
 }
 
-echo "==> cargo-sources.json (bubbles app)..."
-generate_sources "$SCRIPT_DIR/Cargo.lock" "$SCRIPT_DIR/cargo-sources.json"
-
-echo "==> agent-cargo-sources.json (bubbles agent)..."
-generate_sources "$SCRIPT_DIR/../bubbles-agent/Cargo.lock" "$SCRIPT_DIR/agent-cargo-sources.json"
+echo "==> cargo-sources.json (bubbles workspace: app + agent)..."
+generate_sources "$SCRIPT_DIR/../Cargo.lock" "$SCRIPT_DIR/cargo-sources.json"
 
 echo "==> crosvm-cargo-sources.json (crosvm @ ${CROSVM_COMMIT:0:12}…)..."
 git clone --filter=blob:none --quiet "$CROSVM_URL" "$WORKDIR/crosvm"

@@ -26,7 +26,7 @@ jobs:
       - name: Build Flatpak
         run: |
           flatpak-builder --user --install --force-clean build-dir \
-            bubbles-app/de.gonicus.bubbles.yml
+            flatpak/de.gonicus.bubbles.yml
 
       - name: Bundle Flatpak
         run: |
