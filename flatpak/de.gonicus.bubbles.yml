@@ -54,41 +54,24 @@ modules:
           - patches/passt/0000-tolerate-denied-namespaces.patch
           - patches/passt/0001-require-default-route-for-template.patch
 
-  - name: bubbles-agent
-    buildsystem: simple
-    build-options:
-      env:
-        CARGO_HOME: /run/build/bubbles-agent/cargo
-    build-commands:
-      - cargo --offline build --release
-      - install -Dm755 target/release/bubbles-agent payload/bubbles-agent
-      - tar --sort=name --owner=0 --group=0 --numeric-owner --mtime=@0 -cf agent.tar -C payload .
-      - install -Dm644 agent.tar /app/share/bubbles/agent.tar
-    sources:
-      - type: dir
-        path: ../bubbles-agent
-        skip:
-          - target
-      - agent-cargo-sources.json
-
   - name: bubbles
     buildsystem: simple
     build-options:
       env:
         CARGO_HOME: /run/build/bubbles/cargo
     build-commands:
-      - cargo --offline build --release
+      - cargo --offline build --release --workspace
       - install -Dm755 target/release/bubbles /app/bin/bubbles
-      - install -Dm644 de.gonicus.bubbles.desktop /app/share/applications/de.gonicus.bubbles.desktop
-      - install -Dm644 de.gonicus.bubbles.metainfo.xml /app/share/metainfo/de.gonicus.bubbles.metainfo.xml
-      - install -Dm644 de.gonicus.bubbles.svg /app/share/icons/hicolor/scalable/apps/de.gonicus.bubbles.svg
+      - install -Dm755 target/release/bubbles-agent payload/bubbles-agent
+      - tar --sort=name --owner=0 --group=0 --numeric-owner --mtime=@0 -cf agent.tar -C payload .
+      - install -Dm644 agent.tar /app/share/bubbles/agent.tar
+      - install -Dm644 flatpak/de.gonicus.bubbles.desktop /app/share/applications/de.gonicus.bubbles.desktop
+      - install -Dm644 flatpak/de.gonicus.bubbles.metainfo.xml /app/share/metainfo/de.gonicus.bubbles.metainfo.xml
+      - install -Dm644 flatpak/de.gonicus.bubbles.svg /app/share/icons/hicolor/scalable/apps/de.gonicus.bubbles.svg
       - install -Dm644 LICENSE /app/share/licenses/de.gonicus.bubbles/bubbles/LICENSE
-      - install -Dm644 CROSVM_CARGO_DEPENDENCIES_LICENSES.html /app/share/licenses/de.gonicus.bubbles/crosvm/THIRD_PARTY_LICENSES.html
-      - install -Dm644 BUBBLES_CARGO_DEPENDENCIES_LICENSES.html /app/share/licenses/de.gonicus.bubbles/bubbles/THIRD_PARTY_LICENSES.html
-      - install -Dm644 AGENT_CARGO_DEPENDENCIES_LICENSES.html /app/share/licenses/de.gonicus.bubbles/bubbles-agent/THIRD_PARTY_LICENSES.html
+      - install -Dm644 flatpak/CROSVM_CARGO_DEPENDENCIES_LICENSES.html /app/share/licenses/de.gonicus.bubbles/crosvm/THIRD_PARTY_LICENSES.html
+      - install -Dm644 flatpak/BUBBLES_CARGO_DEPENDENCIES_LICENSES.html /app/share/licenses/de.gonicus.bubbles/bubbles/THIRD_PARTY_LICENSES.html
     sources:
       - type: dir
-        path: .
-      - type: file
-        path: ../LICENSE
+        path: ..
       - cargo-sources.json

@@ -6,19 +6,6 @@ on:
     - 'vm-image-*'
 
 jobs:
-  build-agent:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - run: |
-          cd bubbles-agent
-          cargo build --release
-      - name: 'Upload Artifact'
-        uses: actions/upload-artifact@v4
-        with:
-          name: bubbles-agent
-          path: bubbles-agent/target/release/bubbles-agent
-          retention-days: 1
   build-sommelier:
     runs-on: ubuntu-latest
     steps:
@@ -38,7 +25,7 @@ jobs:
         run: |
           git clone --depth=1 https://chromium.googlesource.com/chromiumos/platform2
           cd platform2/vm_tools/sommelier/
-          git apply ../../../bubbles-app/patches/sommelier/*.patch
+          git apply ../../../vm-image/patches/sommelier/*.patch
           meson setup build -Dwith_tests=false
           meson compile -C build
           sudo meson install -C build
@@ -56,7 +43,6 @@ jobs:
           retention-days: 1
   build-vm:
     needs:
-    - build-agent
     - build-sommelier
     runs-on: ubuntu-latest
 
@@ -199,24 +185,11 @@ jobs:
           ln -s \$(cat /opt/home-manager-bin) /opt/home-manager-bootstrap
           rm /opt/home-manager-bin
 
-          systemctl enable bubbles.service
-
           mkdir -p /var/lib/systemd/linger
           touch /var/lib/systemd/linger/user
           EOF
 
           mkdir etcsystemdsystem etcsystemduser etcsystemdnetwork
-          cat > etcsystemdsystem/bubbles.service <<EOF
-          [Unit]
-          Description=BubblesIntegration
-
-          [Service]
-          ExecStart=/usr/local/bin/bubbles-agent
-          User=user
-
-          [Install]
-          WantedBy=multi-user.target
-          EOF
 
           # FiraCode Nerd Font is OFL 1.1; LICENSE ships alongside the .ttf files
           curl -sSL -o FiraCode.zip https://github.com/ryanoasis/nerd-fonts/releases/download/v3.3.0/FiraCode.zip
@@ -278,11 +251,6 @@ jobs:
           echo -ne "\033]0;\$HOSTNAME\007"
           EOF
 
-      - name: Download bubbles-agent
-        uses: actions/download-artifact@v5
-        with:
-          name: bubbles-agent
-          path: usrlocalbin
       - name: Download sommelier
         uses: actions/download-artifact@v5
         with:

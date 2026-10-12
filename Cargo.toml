@@ -1,0 +1,3 @@
+[workspace]
+members = ["bubbles-app", "bubbles-agent"]
+resolver = "2"

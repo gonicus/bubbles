@@ -1,4 +1,4 @@
-<img src="bubbles-app/de.gonicus.bubbles.svg" width="120"/>
+<img src="flatpak/de.gonicus.bubbles.svg" width="120"/>
 
 # Bubbles - lightweight Linux working environments
 
@@ -27,14 +27,14 @@
   - Includes Nix to enable version-controlled, reproducible work environments
   - If Nix is too strict, fall back on Debian's apt or install any other package manager
 
-<img src="bubbles-app/demo.png"/>
+<img src="screenshots/demo.png"/>
 
 <details>
 <summary>Screenshots</summary>
 
-<img src="bubbles-app/screenshots/01-pre-create.png"/>
-<img src="bubbles-app/screenshots/02-create.png"/>
-<img src="bubbles-app/screenshots/03-settings.png"/>
+<img src="screenshots/01-pre-create.png"/>
+<img src="screenshots/02-create.png"/>
+<img src="screenshots/03-settings.png"/>
 
 </details>
 
