@@ -151,6 +151,13 @@ Contra Bubbles:
 
 </details>
 
+## Known Limitations
+
+- No EGL support (yet, see [PR for AMD](https://github.com/gonicus/bubbles/pull/2))
+- Wayland-only, no X11 at the host side (unlikely to change)
+- Wayland-only, no X11 at the guest side (in fact, somewhat possible using current sommelier, but may be buggy)
+- Everything there is an [issue](https://github.com/gonicus/bubbles/issues) open for
+
 ## Using the work in...
 
 - crosvm + sommelier
