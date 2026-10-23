@@ -11,17 +11,13 @@ const MAX_ICON_BYTES: u64 = 64 * 1024;
 const ICON_SIZES: [&str; 5] = ["scalable", "256x256", "128x128", "64x64", "48x48"];
 
 #[derive(Serialize)]
-pub struct Icon {
-    pub data: String,
-}
-
-#[derive(Serialize)]
 pub struct App {
     pub id: String,
     pub name: String,
     pub comment: String,
     pub wm_class: String,
-    pub icon: Option<Icon>,
+    /// Base64.
+    pub icon: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -95,9 +91,11 @@ pub fn list_apps() -> AppList {
                 name: info.name().into(),
                 comment: info.description().map(String::from).unwrap_or_default(),
                 wm_class,
-                icon: info.icon().as_ref().and_then(icon_bytes).map(|bytes| Icon {
-                    data: gio::glib::base64_encode(&bytes).into(),
-                }),
+                icon: info
+                    .icon()
+                    .as_ref()
+                    .and_then(icon_bytes)
+                    .map(|bytes| gio::glib::base64_encode(&bytes).into()),
             })
         })
         .collect();

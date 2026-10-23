@@ -10,7 +10,6 @@ const MAX_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
 // "could not be started" rather than leave it waiting.
 const AGENT_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Where a running bubble's agent listens, and the token it demands.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Agent {
     pub addr: SocketAddr,
@@ -28,7 +27,6 @@ impl Agent {
 
 /// One request to the agent, which speaks HTTP/1 on a loopback address passt
 /// forwards into the bubble. Parameters go in a JSON body, never in the path.
-/// Answers with the status and the whole body.
 pub async fn agent_request(
     agent: &Agent,
     method: Method,
@@ -49,7 +47,7 @@ pub async fn agent_request(
         .map_err(|e| format!("the bubble did not answer: {e}"))?;
 
     let status = response.status();
-    // The bubble fills this list itself, so the size is not ours to trust.
+    // The body comes from the guest, so its size is not ours to trust.
     let body = Limited::new(reqwest::Body::from(response), MAX_RESPONSE_BYTES)
         .collect()
         .await

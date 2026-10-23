@@ -174,6 +174,19 @@ Environment=ELECTRON_OZONE_PLATFORM_HINT=auto
 Environment=SDL_VIDEODRIVER=wayland
 ";
 
+// Sommelier, a user service of the image, prefixes guest windows' app_ids with
+// its VM id. Set to the bubble's name, launchers from different bubbles do not
+// claim each other's windows; see exports::host_app_id. tmpfiles expands the
+// \n, and bubble names hold no % it would expand too.
+fn sommelier_vm_id_tmpfiles(bubble: &str) -> String {
+    format!(
+        "d /run/systemd/user 0755 root root -\n\
+         d /run/systemd/user/sommelier.service.d 0755 root root -\n\
+         f+ /run/systemd/user/sommelier.service.d/bubbles.conf 0644 root root - \
+         [Service]\\nEnvironment=SOMMELIER_VM_IDENTIFIER={bubble}\\n\n"
+    )
+}
+
 fn credential_oem_string(name: &str, content: &str) -> String {
     format!("io.systemd.credential.binary:{}={}", name, gtk::glib::base64_encode(content.as_bytes()))
 }
@@ -219,7 +232,6 @@ pub async fn wait_until_ready(agent: &Agent) {
     }
 }
 
-/// Whether the agent started what `path` asks for.
 async fn agent_post(agent: &Agent, path: &str) -> bool {
     matches!(
         agent_request(agent, reqwest::Method::POST, path, None).await,
@@ -485,7 +497,7 @@ enum VmMsg {
     PowerToggle(DynamicIndex),
     StartTerminal(DynamicIndex),
     OpenSettings(DynamicIndex),
-    OpenApplications(DynamicIndex),
+    OpenApplications,
 }
 
 #[derive(Debug)]
@@ -563,8 +575,8 @@ impl AsyncFactoryComponent for VmEntry {
                     set_sensitive: self.value.status.agent().is_some(),
                     set_icon_name: "view-grid-symbolic",
                     set_tooltip_text: Some("Applications"),
-                    connect_clicked[sender, index] => move |_| {
-                        sender.input(VmMsg::OpenApplications(index.clone()));
+                    connect_clicked[sender] => move |_| {
+                        sender.input(VmMsg::OpenApplications);
                     }
                 },
             }
@@ -585,7 +597,7 @@ impl AsyncFactoryComponent for VmEntry {
             VmMsg::OpenSettings(_index) => {
                 sender.output(VmStateUpdate::OpenSettings(vm_name)).unwrap();
             },
-            VmMsg::OpenApplications(_index) => {
+            VmMsg::OpenApplications => {
                 sender.output(VmStateUpdate::OpenApplications(vm_name)).unwrap();
             },
             VmMsg::PowerToggle(index) => {
@@ -674,6 +686,7 @@ impl AsyncFactoryComponent for VmEntry {
                                 credential_oem_string("systemd.extra-unit.run-bubbles.mount", AGENT_MOUNT_UNIT),
                                 credential_oem_string("systemd.extra-unit.bubbles-agent.service", AGENT_SERVICE_UNIT),
                                 credential_oem_string("bubbles.agent-token", &agent.token),
+                                credential_oem_string("tmpfiles.extra", &sommelier_vm_id_tmpfiles(&vm_name)),
                             ]);
 
                             // Pinning pci address to match image's enp0s7
@@ -1003,7 +1016,6 @@ impl SimpleComponent for App {
                 self.apps_dialog.widgets().dialog.present(Some(&self.root));
             }
             AppMsg::DeleteBubble(name) => {
-                // Read the ids before the directory holding them is removed.
                 relm4::spawn_local(apps::uninstall_launchers(exports::load(&name)));
                 let _ = fs::remove_dir_all(vm_dir(&name));
                 let position = self.vms.iter()

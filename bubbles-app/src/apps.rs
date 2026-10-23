@@ -1,4 +1,4 @@
-use gtk::gdk_pixbuf::Pixbuf;
+use gtk::gdk_pixbuf::{Colorspace, InterpType, Pixbuf};
 use gtk::gio;
 use gtk::glib;
 use gtk::prelude::*;
@@ -11,11 +11,10 @@ use serde::Deserialize;
 use crate::agent::{agent_request, Agent};
 
 const ICON_SIZE: i32 = 32;
+const EXPORT_ICON_SIZE: i32 = 256;
+const BADGE_SIZE: i32 = EXPORT_ICON_SIZE * 2 / 5;
 
-#[derive(Deserialize, Debug, Clone)]
-struct GuestIcon {
-    data: String,
-}
+const BUBBLES_ICON: &[u8] = include_bytes!("../../flatpak/de.gonicus.bubbles.svg");
 
 #[derive(Deserialize, Debug, Clone)]
 struct GuestApp {
@@ -25,7 +24,8 @@ struct GuestApp {
     comment: String,
     #[serde(default)]
     wm_class: String,
-    icon: Option<GuestIcon>,
+    /// Base64.
+    icon: Option<String>,
 }
 
 #[derive(Deserialize, Debug, Default)]
@@ -33,37 +33,45 @@ pub struct GuestAppList {
     apps: Vec<GuestApp>,
 }
 
-// The guest picks the id, and it ends up in the launcher's Exec line and in
-// the agent URL. Everything else it sends goes through KeyFile or plain-text
-// labels.
-fn has_valid_id(app: &GuestApp) -> bool {
-    !app.id.is_empty()
-        && app
-            .id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '+'))
+fn load_pixbuf(bytes: &[u8], size: i32) -> Option<Pixbuf> {
+    let stream = gio::MemoryInputStream::from_bytes(&glib::Bytes::from(bytes));
+    Pixbuf::from_stream_at_scale(&stream, size, size, true, gio::Cancellable::NONE).ok()
 }
 
-fn icon_bytes(app: &GuestApp) -> Option<Vec<u8>> {
-    app.icon.as_ref().map(|icon| glib::base64_decode(&icon.data))
-}
+// Re-rendered (1) to add the Bubbles badge and (2) because we cannot know how
+// the host decodes a launcher icon, so it gets a PNG made from decoded pixels,
+// never the guest's bytes.
+fn export_icon(app: &GuestApp) -> Option<Vec<u8>> {
+    let icon = load_pixbuf(&glib::base64_decode(app.icon.as_ref()?), EXPORT_ICON_SIZE)?;
+    let badge = load_pixbuf(BUBBLES_ICON, BADGE_SIZE)?;
 
-// Via gdk-pixbuf, not Texture::from_bytes, which cannot read the SVGs most
-// icon themes ship.
-fn row_image(app: &GuestApp) -> gtk::Image {
-    let texture = icon_bytes(app).and_then(|bytes| {
-        let stream = gio::MemoryInputStream::from_bytes(&glib::Bytes::from_owned(bytes));
-        let pixbuf =
-            Pixbuf::from_stream_at_scale(&stream, ICON_SIZE, ICON_SIZE, true, gio::Cancellable::NONE)
-                .ok()?;
-        Some(gtk::gdk::Texture::for_pixbuf(&pixbuf))
-    });
-    let image = match texture {
-        Some(texture) => gtk::Image::from_paintable(Some(&texture)),
-        None => gtk::Image::from_icon_name("application-x-executable"),
-    };
-    image.set_pixel_size(ICON_SIZE);
-    image
+    let canvas = Pixbuf::new(Colorspace::Rgb, true, 8, EXPORT_ICON_SIZE, EXPORT_ICON_SIZE)?;
+    canvas.fill(0);
+    // Centred, as the icon need not be square.
+    let (width, height) = (icon.width(), icon.height());
+    let (x, y) = ((EXPORT_ICON_SIZE - width) / 2, (EXPORT_ICON_SIZE - height) / 2);
+    icon.composite(
+        &canvas,
+        x, y,
+        width, height,
+        x.into(), y.into(),
+        1.0, 1.0,
+        InterpType::Bilinear,
+        255,
+    );
+
+    let (width, height) = (badge.width(), badge.height());
+    let (x, y) = (EXPORT_ICON_SIZE - width, EXPORT_ICON_SIZE - height);
+    badge.composite(
+        &canvas,
+        x, y,
+        width, height,
+        x.into(), y.into(),
+        1.0, 1.0,
+        InterpType::Bilinear,
+        255,
+    );
+    Some(gtk::gdk::Texture::for_pixbuf(&canvas).save_to_png_bytes().to_vec())
 }
 
 #[derive(Debug)]
@@ -147,14 +155,22 @@ impl FactoryComponent for AppRow {
         _index: &DynamicIndex,
         _sender: FactorySender<Self>,
     ) -> Self {
-        let image = row_image(&app);
+        let pixbuf = app
+            .icon
+            .as_ref()
+            .and_then(|icon| load_pixbuf(&glib::base64_decode(icon), ICON_SIZE));
+        let image = match pixbuf {
+            Some(pixbuf) => gtk::Image::from_paintable(Some(&gtk::gdk::Texture::for_pixbuf(&pixbuf))),
+            None => gtk::Image::from_icon_name("application-x-executable"),
+        };
+        image.set_pixel_size(ICON_SIZE);
         Self { app, image, exported, busy: false }
     }
 
     fn update(&mut self, _msg: Self::Input, _sender: FactorySender<Self>) {}
 }
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq)]
 enum ListState {
     Loading,
     Loaded,
@@ -273,19 +289,17 @@ impl SimpleComponent for AppsDialog {
                 AppRowOutput::Launch(index) => AppsMsg::Launch(index),
                 AppRowOutput::ToggleMenu(index) => AppsMsg::ToggleMenu(index),
             });
-        let rows_listbox_widget = rows.widget().clone();
-        let toasts_widget = relm4::adw::ToastOverlay::new();
+        let rows_listbox = &rows.widget().clone();
+        let toasts = &relm4::adw::ToastOverlay::new();
 
         let model = AppsDialog {
             bubble: String::new(),
             agent: None,
             rows,
             state: ListState::Loading,
-            toasts: toasts_widget.clone(),
+            toasts: toasts.clone(),
         };
 
-        let rows_listbox = &rows_listbox_widget;
-        let toasts = &toasts_widget;
         let widgets = view_output!();
 
         ComponentParts { model, widgets }
@@ -341,13 +355,22 @@ impl SimpleComponent for AppsDialog {
                 let exported = exports::load(&self.bubble);
                 let mut guard = self.rows.guard();
                 guard.clear();
+                // The guest picks the id, and it ends up in the launcher's Exec
+                // line and in the agent URL. Everything else it sends goes
+                // through KeyFile or plain-text labels.
+                let has_valid_id = |app: &GuestApp| {
+                    !app.id.is_empty()
+                        && app
+                            .id
+                            .chars()
+                            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '+'))
+                };
                 for app in list.apps.into_iter().filter(has_valid_id) {
                     let is_exported =
                         exported.contains(&exports::desktop_file_id(&self.bubble, &app.id));
                     guard.push_back(RowInit { app, exported: is_exported });
                 }
                 let count = guard.len();
-                drop(guard);
                 self.state = if count == 0 {
                     ListState::Message(
                         "No applications".to_string(),
@@ -388,7 +411,6 @@ impl SimpleComponent for AppsDialog {
                 };
                 row.busy = true;
                 let (app, exported) = (row.app.clone(), row.exported);
-                drop(rows);
                 let bubble = self.bubble.clone();
                 relm4::spawn_local(async move {
                     if exported {
@@ -412,7 +434,6 @@ impl SimpleComponent for AppsDialog {
                     }
                 });
                 match result {
-                    // The user closed the portal's dialog.
                     Ok(None) => {}
                     Ok(Some(name)) => {
                         self.toast(&format!("“{name}” added to the application menu"));
@@ -453,8 +474,6 @@ impl AppsDialog {
         update(self.rows.guard().get_mut(position).expect("the row just found"));
     }
 
-    // A toast truncates, and a portal error is the one message worth reading in
-    // full, so it also goes to stderr.
     fn toast(&self, message: &str) {
         // Names and error bodies come from the guest.
         self.toasts.add_toast(
@@ -465,6 +484,8 @@ impl AppsDialog {
         );
     }
 
+    // A toast truncates, and a portal error is the one message worth reading in
+    // full, so it also goes to stderr.
     fn report(&self, message: &str) {
         eprintln!("bubbles: {message}");
         self.toast(message);
@@ -474,7 +495,7 @@ impl AppsDialog {
 /// The name the launcher ended up with, `None` if the user cancelled.
 async fn export_launcher(bubble: &str, app: &GuestApp) -> Result<Option<String>, String> {
     let proposed = format!("{} ({bubble})", app.name);
-    let Some(token) = portal::prepare_install(&proposed, icon_bytes(app)).await? else {
+    let Some(token) = portal::prepare_install(&proposed, export_icon(app)).await? else {
         return Ok(None);
     };
 
@@ -504,8 +525,6 @@ pub async fn uninstall_launchers(desktop_file_ids: exports::Exports) {
 }
 
 pub mod exports {
-    //! Launcher ids, the record of a bubble's launchers, and their desktop entries.
-
     use std::collections::BTreeSet;
     use std::fs;
     use std::path::PathBuf;
@@ -568,9 +587,19 @@ pub mod exports {
         if !comment.is_empty() {
             key_file.set_string("Desktop Entry", "Comment", comment);
         }
-        if !wm_class.is_empty() {
-            key_file.set_string("Desktop Entry", "StartupWMClass", wm_class);
-        }
+        // How the shell finds the launcher for a running window. The window's
+        // app_id on the host: sommelier prefixes it with the VM id, which each
+        // boot sets to the bubble's name. An application without
+        // StartupWMClass usually uses its desktop file id.
+        let guest = match wm_class {
+            "" => guest_app_id.strip_suffix(".desktop").unwrap_or(guest_app_id),
+            wm_class => wm_class,
+        };
+        key_file.set_string(
+            "Desktop Entry",
+            "StartupWMClass",
+            &format!("org.chromium.guest_os.{bubble}.wayland.{guest}"),
+        );
         key_file.set_string("Desktop Entry", "X-Bubbles-Bubble", bubble);
         key_file.to_data().to_string()
     }
@@ -614,6 +643,28 @@ pub mod exports {
             assert_eq!(
                 key_file.string("Desktop Entry", "Exec").unwrap(),
                 exec_line("work", "chromium.desktop")
+            );
+        }
+
+        #[test]
+        fn windows_find_their_launcher() {
+            let startup_wm_class = |guest_app_id: &str, wm_class: &str| {
+                let key_file = glib::KeyFile::new();
+                key_file
+                    .load_from_data(
+                        &desktop_entry("work", guest_app_id, "", wm_class),
+                        glib::KeyFileFlags::NONE,
+                    )
+                    .expect("the entry we produced to parse");
+                key_file.string("Desktop Entry", "StartupWMClass").unwrap().to_string()
+            };
+            assert_eq!(
+                startup_wm_class("org.gnome.TextEditor.desktop", ""),
+                "org.chromium.guest_os.work.wayland.org.gnome.TextEditor"
+            );
+            assert_eq!(
+                startup_wm_class("firefox-esr.desktop", "firefox-esr"),
+                "org.chromium.guest_os.work.wayland.firefox-esr"
             );
         }
     }
@@ -746,8 +797,6 @@ pub mod launcher {
 }
 
 pub mod portal {
-    //! The Dynamic Launcher portal.
-
     use std::sync::OnceLock;
 
     use ashpd::desktop::dynamic_launcher::{
@@ -757,7 +806,6 @@ pub mod portal {
     use gtk::gio::prelude::*;
     use gtk::gio::{self, DBusProxy, DBusProxyFlags};
 
-    const FALLBACK_ICON: &[u8] = include_bytes!("../../flatpak/de.gonicus.bubbles.svg");
 
     static AVAILABLE: OnceLock<bool> = OnceLock::new();
 
@@ -791,7 +839,7 @@ pub mod portal {
     pub async fn prepare_install(name: &str, icon: Option<Vec<u8>>) -> Result<Option<String>, String> {
         // The portal accepts icon bytes only, so an application without an icon of
         // its own is exported under ours rather than a named fallback.
-        let icon = Icon::Bytes(icon.unwrap_or_else(|| FALLBACK_ICON.to_vec()));
+        let icon = Icon::Bytes(icon.unwrap_or_else(|| super::BUBBLES_ICON.to_vec()));
         let options = PrepareInstallOptions::default()
             .set_editable_name(true)
             .set_editable_icon(true);
