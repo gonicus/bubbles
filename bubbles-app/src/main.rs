@@ -36,6 +36,7 @@ const DISK_FD: i32 = 6;
 const INITRD_FD: i32 = 7;
 const KERNEL_FD: i32 = 8;
 const AGENT_DISK_FD: i32 = 9;
+const MESA_DISK_FD: i32 = 10;
 
 // Mirror relevant flatpak-spawn's sandbox flag numbers
 // Newer flatpak portal versions support non-magic-number flags
@@ -134,6 +135,32 @@ User=user
 ExecStartPre=+/bin/sh -c 'tar -xf /dev/disk/by-id/virtio-bubbles-agent -C /run/bubbles'
 ExecStart=/run/bubbles/bubbles-agent
 Restart=on-failure
+";
+
+const AMD_CROSVM_PATH: &str = "/app/extensions/amd/bin/crosvm";
+const MESA_PAYLOAD_PATH: &str = "/app/extensions/amd/share/bubbles/mesa.tar";
+const MESA_DISK_PCI_ADDRESS: &str = "00:11.0";
+
+const MESA_SERVICE_UNIT: &str = r"[Unit]
+Description=Bubbles guest Mesa
+ConditionPathExists=!/etc/initrd-release
+RequiresMountsFor=/run/bubbles
+BindsTo=dev-disk-by\x2did-virtio\x2dbubbles\x2dmesa.device
+After=dev-disk-by\x2did-virtio\x2dbubbles\x2dmesa.device
+Before=systemd-user-sessions.service
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/mkdir -p /run/bubbles/mesa /run/environment.d /run/systemd/user/sommelier.service.d
+ExecStart=/bin/tar -xf /dev/disk/by-id/virtio-bubbles-mesa -C /run/bubbles/mesa
+ExecStart=/bin/ln -sf /run/bubbles/mesa/environment.conf /run/environment.d/50-bubbles-mesa.conf
+ExecStart=/bin/ln -sf /run/bubbles/mesa/sommelier.conf /run/systemd/user/sommelier.service.d/50-bubbles-mesa.conf
+";
+
+const AGENT_MESA_DROPIN: &str = r"[Unit]
+After=bubbles-mesa.service
+[Service]
+EnvironmentFile=/run/bubbles/mesa/environment.conf
 ";
 
 // Single-quoted, crosvm's key=value parser takes the base64 and the '=' and ':'
@@ -595,6 +622,7 @@ impl AsyncFactoryComponent for VmEntry {
                             );
 
                             let wayland_sock = wayland_sock_path();
+                            let amd_gpu = Path::new(AMD_CROSVM_PATH).exists();
 
                             let (gpu_backend_fd, gpu_frontend_fd) = vhost_user_pair();
                             let gpu_fd_arg = format!("--fd={}", GPU_VHOST_FD);
@@ -603,14 +631,18 @@ impl AsyncFactoryComponent for VmEntry {
                                 SandboxNet::Denied,
                                 vec![(gpu_backend_fd, GPU_VHOST_FD)],
                                 &[
-                                    OsStr::new("/app/bin/crosvm"),
+                                    OsStr::new(if amd_gpu { AMD_CROSVM_PATH } else { "/app/bin/crosvm" }),
                                     OsStr::new("device"),
                                     OsStr::new("gpu"),
                                     OsStr::new(&gpu_fd_arg),
                                     OsStr::new("--wayland-sock"),
                                     wayland_sock.as_os_str(),
                                     OsStr::new("--params"),
-                                    OsStr::new(r#"{"context-types":"cross-domain","displays":[]}"#),
+                                    OsStr::new(if amd_gpu {
+                                        r#"{"backend":"virglrenderer","context-types":"drm:cross-domain","displays":[]}"#
+                                    } else {
+                                        r#"{"context-types":"cross-domain","displays":[]}"#
+                                    }),
                                 ],
                             );
 
@@ -634,12 +666,20 @@ impl AsyncFactoryComponent for VmEntry {
                                 "/proc/self/fd/{},ro=true,id=bubbles-agent,pci-address={}",
                                 AGENT_DISK_FD, AGENT_DISK_PCI_ADDRESS,
                             );
-                            let smbios_str = format!(
-                                "oem-strings=[{},{}]",
+                            let mesa_disk_str = format!(
+                                "/proc/self/fd/{},ro=true,id=bubbles-mesa,pci-address={}",
+                                MESA_DISK_FD, MESA_DISK_PCI_ADDRESS,
+                            );
+                            let mut oem_strings = vec![
                                 credential_oem_string("systemd.extra-unit.run-bubbles.mount", AGENT_MOUNT_UNIT),
                                 credential_oem_string("systemd.extra-unit.bubbles-agent.service", AGENT_SERVICE_UNIT),
-                            );
-                            let crosvm_args: Vec<&OsStr> = vec![
+                            ];
+                            if amd_gpu {
+                                oem_strings.push(credential_oem_string("systemd.extra-unit.bubbles-mesa.service", MESA_SERVICE_UNIT));
+                                oem_strings.push(credential_oem_string("systemd.unit-dropin.bubbles-agent.service", AGENT_MESA_DROPIN));
+                            }
+                            let smbios_str = format!("oem-strings=[{}]", oem_strings.join(","));
+                            let mut crosvm_args: Vec<&OsStr> = vec![
                                 OsStr::new("/app/bin/crosvm"),
                                 OsStr::new("run"),
                                 OsStr::new("--name"),
@@ -678,20 +718,30 @@ impl AsyncFactoryComponent for VmEntry {
                                 OsStr::new("systemd.mask=bubbles-proxy.service"),
                                 OsStr::new("-p"),
                                 OsStr::new("systemd.mask=bubbles-proxy-2.service"),
-                                OsStr::new(&kernel_str),
                             ];
+                            let mut crosvm_fds = vec![
+                                (gpu_frontend_fd, GPU_VHOST_FD),
+                                (net_frontend_fd, NET_VHOST_FD),
+                                (kvm_fd, KVM_FD),
+                                (disk_fd, DISK_FD),
+                                (initrd_fd, INITRD_FD),
+                                (kernel_fd, KERNEL_FD),
+                                (agent_disk_fd, AGENT_DISK_FD),
+                            ];
+                            if amd_gpu {
+                                crosvm_args.extend([
+                                    OsStr::new("--block"),
+                                    OsStr::new(&mesa_disk_str),
+                                    OsStr::new("-p"),
+                                    OsStr::new("systemd.wants=bubbles-mesa.service"),
+                                ]);
+                                crosvm_fds.push((open_fd(Path::new(MESA_PAYLOAD_PATH), false), MESA_DISK_FD));
+                            }
+                            crosvm_args.push(OsStr::new(&kernel_str));
                             let crosvm_process = spawn_sandboxed(
                                 &[],
                                 SandboxNet::Denied,
-                                vec![
-                                    (gpu_frontend_fd, GPU_VHOST_FD),
-                                    (net_frontend_fd, NET_VHOST_FD),
-                                    (kvm_fd, KVM_FD),
-                                    (disk_fd, DISK_FD),
-                                    (initrd_fd, INITRD_FD),
-                                    (kernel_fd, KERNEL_FD),
-                                    (agent_disk_fd, AGENT_DISK_FD),
-                                ],
+                                crosvm_fds,
                                 &crosvm_args,
                             );
 

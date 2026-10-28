@@ -28,10 +28,17 @@ jobs:
           flatpak-builder --user --install --force-clean build-dir \
             flatpak/de.gonicus.bubbles.yml
 
+      - name: Build AMD extension
+        run: |
+          flatpak-builder --user --install --force-clean build-dir-amd \
+            flatpak/de.gonicus.bubbles.Amd.yml
+
       - name: Bundle Flatpak
         run: |
           flatpak build-bundle ~/.local/share/flatpak/repo \
             de.gonicus.bubbles.flatpak de.gonicus.bubbles
+          flatpak build-bundle --runtime ~/.local/share/flatpak/repo \
+            de.gonicus.bubbles.Amd.flatpak de.gonicus.bubbles.Amd 1
 
       - name: Create GitHub release
         env:
@@ -40,4 +47,5 @@ jobs:
           gh release create "${{ github.ref_name }}" \
             --title "${{ github.ref_name }}" \
             --generate-notes \
-            de.gonicus.bubbles.flatpak
+            de.gonicus.bubbles.flatpak \
+            de.gonicus.bubbles.Amd.flatpak
