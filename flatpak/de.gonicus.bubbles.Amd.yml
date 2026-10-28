@@ -1,0 +1,124 @@
+id: de.gonicus.bubbles.Amd
+branch: '1'
+runtime: de.gonicus.bubbles
+runtime-version: master
+sdk: org.gnome.Sdk//51
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+  - org.freedesktop.Sdk.Extension.llvm22
+build-extension: true
+separate-locales: false
+appstream-compose: false
+
+build-options:
+  prefix: /app/extensions/amd
+  append-path: /usr/lib/sdk/rust-stable/bin
+  prepend-pkg-config-path: /app/extensions/amd/lib/pkgconfig
+  no-debuginfo: true
+
+cleanup:
+  - /include
+  - /lib/pkgconfig
+  - /lib/pyyaml
+  - /lib/libdrm.so
+  - /lib/libdrm.so.2*
+
+modules:
+  - name: pyyaml
+    buildsystem: simple
+    build-commands:
+      - mkdir -p ${FLATPAK_DEST}/lib/pyyaml
+      - cp -r lib/yaml ${FLATPAK_DEST}/lib/pyyaml/
+    sources:
+      - type: archive
+        url: https://files.pythonhosted.org/packages/05/8e/961c0007c59b8dd7729d542c61a4d537767a59645b82a0b521206e1e25c2/pyyaml-6.0.3.tar.gz
+        sha256: d76623373421df22fb4cf8817020cbb7ef15c725b9d5e45f17e189bfc384190f
+
+  - name: libdrm
+    buildsystem: meson
+    config-opts:
+      - -Damdgpu=enabled
+      - -Dintel=disabled
+      - -Dradeon=disabled
+      - -Dnouveau=disabled
+      - -Dvmwgfx=disabled
+      - -Dcairo-tests=disabled
+      - -Dman-pages=disabled
+      - -Dvalgrind=disabled
+      - -Dtests=false
+    sources:
+      - type: git
+        url: https://gitlab.freedesktop.org/mesa/libdrm.git
+        tag: libdrm-2.4.134
+        commit: e984d448b8b17aab853369e6c203e53719f46de1
+
+  - name: virglrenderer
+    buildsystem: meson
+    build-options:
+      env:
+        PYTHONPATH: /app/extensions/amd/lib/pyyaml
+    config-opts:
+      - -Dplatforms=egl
+      - -Ddrm-renderers=amdgpu-experimental
+    post-install:
+      - install -Dm644 ../COPYING ${FLATPAK_DEST}/share/licenses/de.gonicus.bubbles.Amd/virglrenderer/COPYING
+    cleanup:
+      - /bin/virgl_test_server
+    sources:
+      - type: git
+        url: https://gitlab.freedesktop.org/virgl/virglrenderer.git
+        commit: ca50e008863837e094747a69974dde3ae148aeaa
+
+  - name: crosvm
+    buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/llvm22/bin
+      env:
+        CARGO_HOME: /run/build/crosvm/cargo
+    build-commands:
+      - cargo --offline build --release --features virgl_renderer
+      - install -Dm755 target/release/crosvm ${FLATPAK_DEST}/bin/crosvm
+      - install -Dm644 LICENSE ${FLATPAK_DEST}/share/licenses/de.gonicus.bubbles.Amd/crosvm/LICENSE
+    sources:
+      - type: git
+        url: https://chromium.googlesource.com/crosvm/crosvm
+        commit: b6795499002ad04613263ae49173c7b6b474c6f8
+      - type: patch
+        paths:
+          - patches/crosvm/0000-display-backend-stub.patch
+          - patches/crosvm/0001-remove-wayland-display.patch
+      - crosvm-cargo-sources.json
+
+  - name: guest-mesa
+    buildsystem: simple
+    build-options:
+      env:
+        PYTHONPATH: /app/extensions/amd/lib/pyyaml
+    build-commands:
+      - >-
+        meson setup _build
+        --prefix=/run/bubbles/mesa --libdir=lib --buildtype=release
+        -Dgallium-drivers=radeonsi,virgl -Dvulkan-drivers=amd -Damdgpu-virtio=true
+        -Dplatforms=wayland -Dglx=disabled -Dglvnd=enabled -Dgles1=disabled
+        -Dllvm=disabled -Dgallium-va=disabled -Dvideo-codecs=
+        -Dlmsensors=disabled -Dlibunwind=disabled -Dvalgrind=disabled -Dbuild-tests=false
+        -Dc_args="-include $PWD/glibc-compat.h"
+        -Dcpp_args="-include $PWD/glibc-compat.h"
+        -Dcpp_link_args=-static-libstdc++
+      - ninja -C _build
+      - DESTDIR=$PWD/payload meson install -C _build --strip --no-rebuild --tags runtime
+      - "! objdump -T $(find payload -name '*.so*' -type f) | grep -E 'GLIBC_2\\.(4[2-9]|[5-9][0-9])'"
+      - install -m644 environment.conf sommelier.conf payload/run/bubbles/mesa/
+      - tar --sort=name --owner=0 --group=0 --numeric-owner --mtime=@0 -cf mesa.tar -C payload/run/bubbles/mesa .
+      - install -Dm644 mesa.tar ${FLATPAK_DEST}/share/bubbles/mesa.tar
+      - install -Dm644 docs/license.rst ${FLATPAK_DEST}/share/licenses/de.gonicus.bubbles.Amd/mesa/license.rst
+    sources:
+      - type: git
+        url: https://gitlab.freedesktop.org/mesa/mesa.git
+        commit: a8baedef2905567a461191475cbd3565a21843db
+      - type: file
+        path: guest-mesa/environment.conf
+      - type: file
+        path: guest-mesa/sommelier.conf
+      - type: file
+        path: guest-mesa/glibc-compat.h

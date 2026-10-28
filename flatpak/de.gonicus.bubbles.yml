@@ -16,6 +16,15 @@ build-options:
   append-path: /usr/lib/sdk/rust-stable/bin
   no-debuginfo: true
 
+add-extensions:
+  de.gonicus.bubbles.Amd:
+    directory: extensions/amd
+    version: '1'
+    add-ld-path: lib
+    download-if: have-kernel-module-amdgpu
+    enable-if: have-kernel-module-amdgpu
+    autodelete: true
+
 modules:
   - name: crosvm
     buildsystem: simple
@@ -65,6 +74,7 @@ modules:
       - install -Dm755 target/release/bubbles-agent payload/bubbles-agent
       - tar --sort=name --owner=0 --group=0 --numeric-owner --mtime=@0 -cf agent.tar -C payload .
       - install -Dm644 agent.tar /app/share/bubbles/agent.tar
+      - install -d /app/extensions/amd
       - install -Dm644 flatpak/de.gonicus.bubbles.desktop /app/share/applications/de.gonicus.bubbles.desktop
       - install -Dm644 flatpak/de.gonicus.bubbles.metainfo.xml /app/share/metainfo/de.gonicus.bubbles.metainfo.xml
       - install -Dm644 flatpak/de.gonicus.bubbles.svg /app/share/icons/hicolor/scalable/apps/de.gonicus.bubbles.svg

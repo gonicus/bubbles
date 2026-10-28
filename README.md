@@ -153,7 +153,7 @@ Contra Bubbles:
 
 ## Known Limitations
 
-- No EGL support (yet, see [PR for AMD](https://github.com/gonicus/bubbles/pull/2))
+- GPU acceleration (EGL, Vulkan) only on AMD hosts, using DRM native context; other hosts fall back to software rendering
 - Wayland-only, no X11 at the host side (unlikely to change)
 - Wayland-only, no X11 at the guest side (in fact, somewhat possible using current sommelier, but may be buggy)
 - Everything there is an [issue](https://github.com/gonicus/bubbles/issues) open for
