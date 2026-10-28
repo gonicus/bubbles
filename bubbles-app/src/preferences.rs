@@ -1,4 +1,4 @@
-use crate::config;
+use crate::config::{self, GIB};
 
 use relm4::adw::prelude::*;
 use gtk::prelude::{ButtonExt, EditableExt};
@@ -8,7 +8,7 @@ use relm4::{Component, ComponentController, ComponentParts, ComponentSender, Fac
 use std::{fs, path::PathBuf};
 
 fn disk_path(vm_name: &str) -> PathBuf {
-    config::get_data_dir().join("vms").join(vm_name).join("disk.img")
+    crate::config::vm_dir(vm_name).join("disk.img")
 }
 
 fn disk_size_bytes(vm_name: &str) -> u64 {
@@ -18,9 +18,7 @@ fn disk_size_bytes(vm_name: &str) -> u64 {
 }
 
 fn disk_size_gb_ceil(vm_name: &str) -> u32 {
-    let bytes = disk_size_bytes(vm_name);
-    let gb = bytes as f64 / (1024.0 * 1024.0 * 1024.0);
-    gb.ceil() as u32
+    disk_size_bytes(vm_name).div_ceil(GIB) as u32
 }
 
 fn grow_disk_to(vm_name: &str, target_gb: u64) {
@@ -30,14 +28,14 @@ fn grow_disk_to(vm_name: &str, target_gb: u64) {
         .open(&path)
         .expect("disk to open");
     let current = file.metadata().expect("disk metadata").len();
-    let target_bytes = target_gb * 1024 * 1024 * 1024;
+    let target_bytes = target_gb * GIB;
     if target_bytes > current {
         file.set_len(target_bytes).expect("disk to grow");
     }
 }
 
 fn host_cpu_count() -> u32 {
-    (unsafe { libc::sysconf(libc::_SC_NPROCESSORS_ONLN) } as u32).max(1)
+    std::thread::available_parallelism().map_or(1, |count| count.get() as u32)
 }
 
 fn host_ram_mb() -> u32 {
@@ -422,11 +420,7 @@ impl SimpleComponent for BubbleSettingsDialog {
                 let delete_sender = sender.input_sender();
                 let delete_dialog = DeleteConfirmDialog::builder()
                     .launch(vm_name.clone())
-                    .forward(delete_sender, move |output| match output {
-                        name => {
-                            BubbleSettingsMsg::DeleteConfirmed(name)
-                        }
-                    });
+                    .forward(delete_sender, BubbleSettingsMsg::DeleteConfirmed);
                 delete_dialog.widgets().dialog.present(Some(&self.dialog));
                 self.delete_confirm = Some(delete_dialog);
             }

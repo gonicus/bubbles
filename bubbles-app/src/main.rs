@@ -1,3 +1,5 @@
+mod agent;
+mod apps;
 mod preferences;
 mod config;
 
@@ -11,21 +13,22 @@ use relm4::{
 };
 use relm4::factory::DynamicIndex;
 use std::{env, fs, path::{Path, PathBuf}, ffi::{OsStr, OsString}};
-use std::fs::OpenOptions;
-use std::os::fd::{BorrowedFd, OwnedFd};
+use std::fs::{File, OpenOptions};
+use std::io::Write;
+use std::os::fd::{BorrowedFd, FromRawFd, OwnedFd};
 use std::os::unix::net::UnixStream;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener};
 use libc::SIGTERM;
 
+use agent::{agent_request, Agent};
+use config::{get_data_dir, vm_dir, GIB};
+
+use apps::{exports, launcher, AppsDialog, AppsMsg};
 use preferences::{BubbleSettingsDialog, BubbleSettingsMsg, BubbleSettingsOutput};
 
 
-pub fn get_data_dir() -> PathBuf {
-    let base = env::var("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(env::var("HOME").expect("HOME")).join(".local/share"));
-    base.join("bubbles")
-}
+
+pub const APP_ID: &str = "de.gonicus.bubbles";
 
 // static FD numbers
 // stdio uses 0, 1, 2; start at 3
@@ -36,6 +39,7 @@ const DISK_FD: i32 = 6;
 const INITRD_FD: i32 = 7;
 const KERNEL_FD: i32 = 8;
 const AGENT_DISK_FD: i32 = 9;
+const OEM_STRINGS_FD: i32 = 10;
 
 // Mirror relevant flatpak-spawn's sandbox flag numbers
 // Newer flatpak portal versions support non-magic-number flags
@@ -89,6 +93,21 @@ fn open_fd(path: &Path, write: bool) -> OwnedFd {
         .into()
 }
 
+// In memory rather than on the command line, which every process on the host
+// can read through /proc. One string per line.
+fn oem_strings_fd(strings: &[String]) -> OwnedFd {
+    // SAFETY: a static NUL-terminated name; the fd is fresh and owned by File alone.
+    let mut file = unsafe {
+        let fd = libc::memfd_create(c"bubbles-oem-strings".as_ptr(), libc::MFD_CLOEXEC);
+        assert!(fd >= 0, "memfd for the OEM strings: {}", std::io::Error::last_os_error());
+        File::from_raw_fd(fd)
+    };
+    for string in strings {
+        writeln!(file, "{string}").expect("OEM strings to fit in memory");
+    }
+    file.into()
+}
+
 fn wayland_sock_path() -> PathBuf {
     let runtime_dir = env::var("XDG_RUNTIME_DIR").expect("XDG_RUNTIME_DIR");
     let display = env::var("WAYLAND_DISPLAY").expect("WAYLAND_DISPLAY");
@@ -134,12 +153,42 @@ User=user
 ExecStartPre=+/bin/sh -c 'tar -xf /dev/disk/by-id/virtio-bubbles-agent -C /run/bubbles'
 ExecStart=/run/bubbles/bubbles-agent
 Restart=on-failure
+# Inherited by everything the agent starts: they run in the user's home,
+# reach sommelier's Wayland socket under the runtime dir, and find the user's
+# session bus, without which GApplication cannot hand over to a running
+# instance and D-Bus activation fails.
+WorkingDirectory=~
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
+LoadCredential=bubbles.agent-token
+# A system service never sees the login shell's PATH and XDG_DATA_DIRS. GIO
+# lists the applications from these, and the ones it starts inherit them.
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/home/user/.nix-profile/bin
+Environment=XDG_DATA_DIRS=/home/user/.nix-profile/share:/home/user/.local/share/flatpak/exports/share:/var/lib/flatpak/exports/share:/usr/local/share:/usr/share
+# Applications the agent starts run under sommelier, which offers
+# Wayland and no X server. Qt5 in particular still defaults to X11.
+Environment=WAYLAND_DISPLAY=wayland-0
+Environment=XDG_SESSION_TYPE=wayland
+Environment=QT_QPA_PLATFORM=wayland
+Environment=ELECTRON_OZONE_PLATFORM_HINT=auto
+Environment=SDL_VIDEODRIVER=wayland
 ";
 
-// Single-quoted, crosvm's key=value parser takes the base64 and the '=' and ':'
-// around it literally.
+// Sommelier, a user service of the image, prefixes guest windows' app_ids with
+// its VM id. Set to the bubble's name, launchers from different bubbles do not
+// claim each other's windows; see exports::host_app_id. tmpfiles expands the
+// \n, and bubble names hold no % it would expand too.
+fn sommelier_vm_id_tmpfiles(bubble: &str) -> String {
+    format!(
+        "d /run/systemd/user 0755 root root -\n\
+         d /run/systemd/user/sommelier.service.d 0755 root root -\n\
+         f+ /run/systemd/user/sommelier.service.d/bubbles.conf 0644 root root - \
+         [Service]\\nEnvironment=SOMMELIER_VM_IDENTIFIER={bubble}\\n\n"
+    )
+}
+
 fn credential_oem_string(name: &str, content: &str) -> String {
-    format!("'io.systemd.credential.binary:{}={}'", name, gtk::glib::base64_encode(content.as_bytes()))
+    format!("io.systemd.credential.binary:{}={}", name, gtk::glib::base64_encode(content.as_bytes()))
 }
 
 struct CreateBubbleDialog {
@@ -157,22 +206,25 @@ enum ImageStatus {
 }
 
 fn determine_download_status() -> ImageStatus {
-    let images_dir = config::get_data_dir().join("images");
+    let images_dir = get_data_dir().join("images");
     fs::create_dir_all(&images_dir).expect("directory to exist or be created");
 
-    let image_exists = images_dir.join(Path::new("debian-13/disk.img")).exists();
-
-    return match image_exists {
-        true => ImageStatus::Present,
-        false => ImageStatus::NotPresent,
-    };
+    if images_dir.join("debian-13/disk.img").exists() {
+        ImageStatus::Present
+    } else {
+        ImageStatus::NotPresent
+    }
 }
 
-pub async fn wait_until_ready(addr: SocketAddr) {
-    let client = reqwest::Client::new();
+// Launcher ids embed the name as it is; see exports::desktop_file_id.
+fn is_valid_bubble_name(name: &str) -> bool {
+    !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+}
+
+pub async fn wait_until_ready(agent: &Agent) {
     loop {
-        match tokio::time::timeout(std::time::Duration::from_secs(2), client.get(format!("http://{addr}/ready")).send()).await {
-            Ok(Ok(response)) if response.status() == 200 => return,
+        match tokio::time::timeout(std::time::Duration::from_secs(2), agent_request(agent, reqwest::Method::GET, "/ready", None)).await {
+            Ok(Ok((status, _))) if status.is_success() => return,
             _ => {
                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             }
@@ -180,20 +232,11 @@ pub async fn wait_until_ready(addr: SocketAddr) {
     }
 }
 
-pub async fn request_shutdown(addr: SocketAddr) -> bool {
-    let client = reqwest::Client::new();
-    return match client.post(format!("http://{addr}/shutdown")).send().await {
-        Ok(response) if response.status() == 201 => true,
-        _ => false
-    };
-}
-
-pub async fn request_terminal(addr: SocketAddr) -> bool {
-    let client = reqwest::Client::new();
-    return match client.post(format!("http://{addr}/spawn-terminal")).send().await {
-        Ok(response) if response.status() == 201 => true,
-        _ => false
-    };
+async fn agent_post(agent: &Agent, path: &str) -> bool {
+    matches!(
+        agent_request(agent, reqwest::Method::POST, path, None).await,
+        Ok((status, _)) if status.is_success()
+    )
 }
 
 // Pinned VM image release. Bump both when publishing a new vm-image-* release:
@@ -217,7 +260,7 @@ async fn run_checked(argv: &[&OsStr], flags: SubprocessFlags) -> Result<(), Stri
 }
 
 async fn download_image() {
-    let target_dir = config::get_data_dir().join("images/debian-13");
+    let target_dir = get_data_dir().join("images/debian-13");
     let tarball_path = target_dir.join("disk.tar.gz");
     let checkfile_path = target_dir.join("disk.tar.gz.sha256");
     let raw_path = target_dir.join("disk.img");
@@ -340,8 +383,7 @@ impl SimpleComponent for CreateBubbleDialog {
                 #[wrap(Some)]
                 set_child = &gtk::Entry {
                     connect_changed => move |entry| {
-                        let name: String = entry.text().into();
-                        if !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+                        if is_valid_bubble_name(&entry.text()) {
                             entry.remove_css_class("error");
                         } else {
                             entry.add_css_class("error");
@@ -349,7 +391,7 @@ impl SimpleComponent for CreateBubbleDialog {
                     },
                     connect_activate[sender] => move |entry| {
                         let name: String = entry.text().into();
-                        if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+                        if !is_valid_bubble_name(&name) {
                             return;
                         }
                         sender.output(AppMsg::CreateNewBubble(name)).unwrap();
@@ -379,6 +421,7 @@ struct App {
     create_bubble_dialog: Controller<CreateBubbleDialog>,
     warn_close_dialog: Controller<WarnCloseDialog>,
     settings_dialog: Controller<BubbleSettingsDialog>,
+    apps_dialog: Controller<AppsDialog>,
     currently_creating_bubble: bool,
     image_status: ImageStatus,
     root: relm4::adw::Window,
@@ -387,40 +430,47 @@ struct App {
 #[derive(PartialEq, Debug, Clone)]
 enum VMStatus {
     NotRunning,
-    Running,
+    /// Ready, with where its agent listens. The address and token are made
+    /// at start time, so this is the only place that knows them.
+    Running(Agent),
     InFlux,
+}
+
+impl VMStatus {
+    fn agent(&self) -> Option<&Agent> {
+        match self {
+            VMStatus::Running(agent) => Some(agent),
+            _ => None,
+        }
+    }
 }
 
 #[derive(PartialEq, Debug, Clone)]
 struct VM {
     name: String,
     status: VMStatus,
-    agent_addr: Option<SocketAddr>,
 }
 
 fn load_vms() -> Vec<VM> {
-    let vms_dir = config::get_data_dir().join("vms");
+    let vms_dir = get_data_dir().join("vms");
     fs::create_dir_all(&vms_dir).expect("directory to exist or be created");
-    let mut vms: Vec<VM> = vec![];
-    for dir in fs::read_dir(vms_dir).expect("to exist") {
-        let dir = dir.expect("to exist");
-        let vm_name = dir
-            .file_name()
-            .into_string()
-            .expect("path to be serializable");
-        vms.push(VM {
-            name: vm_name.clone(),
+    fs::read_dir(vms_dir)
+        .expect("to exist")
+        .map(|dir| VM {
+            name: dir
+                .expect("to exist")
+                .file_name()
+                .into_string()
+                .expect("path to be serializable"),
             status: VMStatus::NotRunning,
-            agent_addr: None,
-        });
-    }
-    return vms;
+        })
+        .collect()
 }
 
 async fn create_vm(name: String) {
-    let vm_dir_path = config::get_data_dir().join("vms").join(&name);
+    let vm_dir_path = vm_dir(&name);
     tokio::fs::create_dir_all(&vm_dir_path).await.expect("directories to be created");
-    let image_base_path = config::get_data_dir().join("images/debian-13");
+    let image_base_path = get_data_dir().join("images/debian-13");
     let image_disk_path = image_base_path.join("disk.img");
     let image_linuz_path = image_base_path.join("vmlinuz");
     let image_initrd_path = image_base_path.join("initrd.img");
@@ -435,7 +485,7 @@ async fn create_vm(name: String) {
     let f = tokio::fs::OpenOptions::new().write(true).open(vm_dir_path.join("disk.img")).await
         .expect("open image");
     let current_size = f.metadata().await.expect("stat image").len();
-    f.set_len(current_size + 15 * 1024 * 1024 * 1024).await.expect("resize image");
+    f.set_len(current_size + 15 * GIB).await.expect("resize image");
 
     println!("save config...");
     config::save_config(&name, &config::BubbleConfig::default());
@@ -447,12 +497,14 @@ enum VmMsg {
     PowerToggle(DynamicIndex),
     StartTerminal(DynamicIndex),
     OpenSettings(DynamicIndex),
+    OpenApplications,
 }
 
 #[derive(Debug)]
 enum VmStateUpdate {
     Update(DynamicIndex, VMStatus),
     OpenSettings(String),
+    OpenApplications(String),
 }
 
 #[derive(PartialEq, Debug)]
@@ -497,11 +549,11 @@ impl AsyncFactoryComponent for VmEntry {
                     #[watch]
                     set_icon_name: match self.value.status {
                         VMStatus::NotRunning => "media-playback-start-symbolic",
-                        VMStatus::Running | VMStatus::InFlux => "media-playback-stop-symbolic",
+                        VMStatus::Running(_) | VMStatus::InFlux => "media-playback-stop-symbolic",
                     },
                     #[watch]
                     set_css_classes: match self.value.status {
-                        VMStatus::Running => &["destructive-action"],
+                        VMStatus::Running(_) => &["destructive-action"],
                         _ => &[],
                     },
                     set_tooltip_text: Some("Power"),
@@ -511,11 +563,20 @@ impl AsyncFactoryComponent for VmEntry {
                 },
                 append = &gtk::Button {
                     #[watch]
-                    set_sensitive: self.value.status == VMStatus::Running,
+                    set_sensitive: self.value.status.agent().is_some(),
                     set_icon_name: "utilities-terminal-symbolic",
                     set_tooltip_text: Some("Start terminal emulator instance"),
                     connect_clicked[sender, index] => move |_| {
                         sender.input(VmMsg::StartTerminal(index.clone()));
+                    }
+                },
+                append = &gtk::Button {
+                    #[watch]
+                    set_sensitive: self.value.status.agent().is_some(),
+                    set_icon_name: "view-grid-symbolic",
+                    set_tooltip_text: Some("Applications"),
+                    connect_clicked[sender] => move |_| {
+                        sender.input(VmMsg::OpenApplications);
                     }
                 },
             }
@@ -531,25 +592,27 @@ impl AsyncFactoryComponent for VmEntry {
     }
     async fn update(&mut self, msg: Self::Input, sender: AsyncFactorySender<Self>) {
         let vm_name: String = self.value.name.clone();
-        let image_base_path = config::get_data_dir().join("vms").join(vm_name.clone());
+        let image_base_path = vm_dir(&vm_name);
         match msg {
             VmMsg::OpenSettings(_index) => {
                 sender.output(VmStateUpdate::OpenSettings(vm_name)).unwrap();
             },
+            VmMsg::OpenApplications => {
+                sender.output(VmStateUpdate::OpenApplications(vm_name)).unwrap();
+            },
             VmMsg::PowerToggle(index) => {
-                match self.value.status {
-                    VMStatus::Running => {
-                        let agent_addr = self.value.agent_addr.expect("a running bubble to hold an agent address");
+                match &self.value.status {
+                    VMStatus::Running(agent) => {
+                        let agent = agent.clone();
                         relm4::spawn_local(async move {
-                            if request_shutdown(agent_addr).await {
+                            if agent_post(&agent, "/shutdown").await {
                                 sender.output(VmStateUpdate::Update(index, VMStatus::InFlux)).unwrap();
                             }
                         });
                     },
                     VMStatus::InFlux => {},
                     VMStatus::NotRunning => {
-                        let agent_addr = claim_agent_addr();
-                        self.value.agent_addr = Some(agent_addr);
+                        let agent = Agent::new(claim_agent_addr());
                         sender.output(VmStateUpdate::Update(index.clone(), VMStatus::InFlux)).unwrap();
                         relm4::spawn_local(async move {
                             let config = config::load_config(&vm_name);
@@ -570,7 +633,7 @@ impl AsyncFactoryComponent for VmEntry {
                             // clear of the other bubbles and of the host's
                             // services, and off every interface but loopback.
                             let agent_forward = format!(
-                                "{}/{}:{}", agent_addr.ip(), agent_addr.port(), AGENT_PORT,
+                                "{}/{}:{}", agent.addr.ip(), agent.addr.port(), AGENT_PORT,
                             );
                             passt_args.push(OsStr::new("--tcp-ports"));
                             passt_args.push(OsStr::new(&agent_forward));
@@ -619,6 +682,12 @@ impl AsyncFactoryComponent for VmEntry {
                             let initrd_fd = open_fd(&image_initrd_path, false);
                             let kernel_fd = open_fd(&image_linuz_path, false);
                             let agent_disk_fd = open_fd(Path::new(AGENT_PAYLOAD_PATH), false);
+                            let oem_strings_fd = oem_strings_fd(&[
+                                credential_oem_string("systemd.extra-unit.run-bubbles.mount", AGENT_MOUNT_UNIT),
+                                credential_oem_string("systemd.extra-unit.bubbles-agent.service", AGENT_SERVICE_UNIT),
+                                credential_oem_string("bubbles.agent-token", &agent.token),
+                                credential_oem_string("tmpfiles.extra", &sommelier_vm_id_tmpfiles(&vm_name)),
+                            ]);
 
                             // Pinning pci address to match image's enp0s7
                             let passt_socket_str = format!("net,socket=/proc/self/fd/{},pci-address=00:07.0", NET_VHOST_FD);
@@ -634,11 +703,7 @@ impl AsyncFactoryComponent for VmEntry {
                                 "/proc/self/fd/{},ro=true,id=bubbles-agent,pci-address={}",
                                 AGENT_DISK_FD, AGENT_DISK_PCI_ADDRESS,
                             );
-                            let smbios_str = format!(
-                                "oem-strings=[{},{}]",
-                                credential_oem_string("systemd.extra-unit.run-bubbles.mount", AGENT_MOUNT_UNIT),
-                                credential_oem_string("systemd.extra-unit.bubbles-agent.service", AGENT_SERVICE_UNIT),
-                            );
+                            let smbios_str = format!("oem-strings-file=/proc/self/fd/{}", OEM_STRINGS_FD);
                             let crosvm_args: Vec<&OsStr> = vec![
                                 OsStr::new("/app/bin/crosvm"),
                                 OsStr::new("run"),
@@ -691,12 +756,13 @@ impl AsyncFactoryComponent for VmEntry {
                                     (initrd_fd, INITRD_FD),
                                     (kernel_fd, KERNEL_FD),
                                     (agent_disk_fd, AGENT_DISK_FD),
+                                    (oem_strings_fd, OEM_STRINGS_FD),
                                 ],
                                 &crosvm_args,
                             );
 
-                            wait_until_ready(agent_addr).await;
-                            sender.output(VmStateUpdate::Update(index.clone(), VMStatus::Running)).unwrap();
+                            wait_until_ready(&agent).await;
+                            sender.output(VmStateUpdate::Update(index.clone(), VMStatus::Running(agent))).unwrap();
                             crosvm_process.wait_future().await.expect("vm to stop");
                             passt_process.send_signal(SIGTERM); // Marker: Incompatible with Windows
                             gpu_process.send_signal(SIGTERM);
@@ -708,9 +774,9 @@ impl AsyncFactoryComponent for VmEntry {
                 }
             },
             VmMsg::StartTerminal(_index) => {
-                let agent_addr = self.value.agent_addr.expect("a running bubble to hold an agent address");
+                let Some(agent) = self.value.status.agent().cloned() else { return };
                 relm4::spawn_local(async move {
-                    request_terminal(agent_addr).await;
+                    agent_post(&agent, "/spawn-terminal").await;
                 });
             }
         }
@@ -728,7 +794,9 @@ enum AppMsg {
     FinishBubbleCreation,
     CloseApplication,
     OpenBubbleSettings(String),
+    OpenBubbleApplications(String),
     DeleteBubble(String),
+    StartApplication(launcher::StartRequest),
 }
 
 #[relm4::component]
@@ -846,28 +914,29 @@ impl SimpleComponent for App {
                 .forward(sender.input_sender(), |output| match output {
                     VmStateUpdate::Update(index, status_update) => AppMsg::HandleVMStatusUpdate(index, status_update),
                     VmStateUpdate::OpenSettings(name) => AppMsg::OpenBubbleSettings(name),
+                    VmStateUpdate::OpenApplications(name) => AppMsg::OpenBubbleApplications(name),
                 });
         let create_bubble_dialog = CreateBubbleDialog::builder()
             .launch(())
-            .forward(sender.input_sender(), |msg| match msg {
-                msg => msg
-            });
+            .forward(sender.input_sender(), std::convert::identity);
         let warn_close_dialog = WarnCloseDialog::builder()
             .launch(())
-            .forward(sender.input_sender(), |msg| match msg {
-                msg => msg
-            });
+            .forward(sender.input_sender(), std::convert::identity);
         let settings_dialog = BubbleSettingsDialog::builder()
             .launch(())
             .forward(sender.input_sender(), |output| match output {
                 BubbleSettingsOutput::DeleteBubble(name) => AppMsg::DeleteBubble(name),
             });
+        let apps_dialog = AppsDialog::builder().launch(()).detach();
+        let launch_sender = sender.input_sender().clone();
+        launcher::connect(move |request| launch_sender.emit(AppMsg::StartApplication(request)));
 
         let mut model = App {
             vms,
             create_bubble_dialog,
             warn_close_dialog,
             settings_dialog,
+            apps_dialog,
             root: root.clone(),
             currently_creating_bubble: false,
             image_status: determine_download_status(),
@@ -931,31 +1000,34 @@ impl SimpleComponent for App {
                 self.image_status = determine_download_status();
             }
             AppMsg::HandleVMStatusUpdate(index, status_update) => {
-                self.vms.guard().get_mut(index.current_index()).unwrap().value.status = status_update;
+                let agent = status_update.agent().cloned();
+                let mut guard = self.vms.guard();
+                let vm = &mut guard.get_mut(index.current_index()).unwrap().value;
+                vm.status = status_update;
+                self.apps_dialog.emit(AppsMsg::AgentChanged(vm.name.clone(), agent));
             }
             AppMsg::OpenBubbleSettings(name) => {
                 self.settings_dialog.sender().send(BubbleSettingsMsg::Load(name)).unwrap();
                 self.settings_dialog.widgets().dialog.present(Some(&self.root));
             }
+            AppMsg::OpenBubbleApplications(name) => {
+                let agent = self.agent_of(&name);
+                self.apps_dialog.emit(AppsMsg::Load(name, agent));
+                self.apps_dialog.widgets().dialog.present(Some(&self.root));
+            }
             AppMsg::DeleteBubble(name) => {
-                let vm_dir = config::get_data_dir().join("vms").join(&name);
-                let _ = fs::remove_dir_all(&vm_dir);
-                let mut guard = self.vms.guard();
-                let mut index = 0;
-                for (i, vm) in guard.iter().enumerate() {
-                    if vm.unwrap().value.name == name {
-                        index = i;
-                    }
+                relm4::spawn_local(apps::uninstall_launchers(exports::load(&name)));
+                let _ = fs::remove_dir_all(vm_dir(&name));
+                let position = self.vms.iter()
+                    .position(|entry| entry.is_some_and(|entry| entry.value.name == name));
+                if let Some(index) = position {
+                    self.vms.guard().remove(index);
                 }
-                guard.remove(index);
             }
             AppMsg::CloseApplication => {
-                let mut vm_running = false;
-                for vm in self.vms.guard().iter_mut() {
-                    if vm.unwrap().value.status != VMStatus::NotRunning {
-                        vm_running = true;
-                    }
-                }
+                let vm_running = self.vms.iter()
+                    .flatten()
+                    .any(|entry| entry.value.status != VMStatus::NotRunning);
                 if self.image_status == ImageStatus::Downloading || self.currently_creating_bubble || vm_running {
                     self.warn_close_dialog.widgets().dialog.present(Some(&self.root));
                     return
@@ -963,11 +1035,26 @@ impl SimpleComponent for App {
 
                 relm4::main_application().quit();
             }
+            AppMsg::StartApplication(request) => {
+                let agent = self.agent_of(&request.bubble);
+                launcher::answer(request, agent);
+            }
         }
     }
 }
 
+impl App {
+    fn agent_of(&self, bubble: &str) -> Option<Agent> {
+        self.vms
+            .iter()
+            .flatten()
+            .find(|entry| entry.value.name == bubble)
+            .and_then(|entry| entry.value.status.agent().cloned())
+    }
+}
+
 fn main() {
-    let app = RelmApp::new("de.gonicus.bubbles");
+    let app = RelmApp::new(APP_ID);
+    launcher::setup(&relm4::main_application());
     app.run::<App>(());
 }

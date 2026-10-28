@@ -35,6 +35,7 @@ modules:
         paths:
           - patches/crosvm/0000-display-backend-stub.patch
           - patches/crosvm/0001-remove-wayland-display.patch
+          - patches/crosvm/0002-smbios-oem-strings-file.patch
       - crosvm-cargo-sources.json
 
   - name: passt
