@@ -574,10 +574,10 @@ impl AsyncFactoryComponent for VmEntry {
                             );
                             passt_args.push(OsStr::new("--tcp-ports"));
                             passt_args.push(OsStr::new(&agent_forward));
-                            let ports_joined = config.tcp_ports.join(",");
-                            if !ports_joined.is_empty() {
+                            let user_forwards = format!("127.0.0.1/{}", config.tcp_ports.join(","));
+                            if !config.tcp_ports.is_empty() {
                                 passt_args.push(OsStr::new("--tcp-ports"));
-                                passt_args.push(OsStr::new(&ports_joined));
+                                passt_args.push(OsStr::new(&user_forwards));
                             }
                             passt_args.push(OsStr::new("--map-host-loopback"));
                             if config.map_host_loopback {
