@@ -1,0 +1,17 @@
+diff --git a/vm_tools/sommelier/compositor/sommelier-compositor.cc b/vm_tools/sommelier/compositor/sommelier-compositor.cc
+index 23a35a7b..9fef3685 100644
+--- a/vm_tools/sommelier/compositor/sommelier-compositor.cc
++++ b/vm_tools/sommelier/compositor/sommelier-compositor.cc
+@@ -740,6 +740,12 @@ void sl_host_surface_commit(struct wl_client* client,
+           // surface size becomes the source rectangle size.
+           width = wl_fixed_to_int(viewport->src_width);
+           height = wl_fixed_to_int(viewport->src_height);
++        } else {
++          // Forward an unset source too: otherwise a crop the client cleared
++          // stays on the host viewport and stretches a stale buffer region.
++          wl_fixed_t negative_one = wl_fixed_from_int(-1);
++          wp_viewport_set_source(host->viewport, negative_one, negative_one,
++                                 negative_one, negative_one);
+         }
+ 
+         // Use destination size as surface size when set.
