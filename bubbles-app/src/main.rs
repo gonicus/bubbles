@@ -136,6 +136,17 @@ ExecStart=/run/bubbles/bubbles-agent
 Restart=on-failure
 ";
 
+const LOCK_PASSWORD_UNIT: &str = r#"[Unit]
+ConditionPathExists=!/etc/initrd-release
+Before=systemd-user-sessions.service
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'if passwd -S user | grep -q "^user NP "; then usermod -p "!" user; fi'
+"#;
+
+const SUDOERS_TMPFILES: &str =
+    "f /etc/sudoers.d/bubbles 0440 root root - user ALL=(ALL) NOPASSWD: ALL\\n\n";
+
 // Single-quoted, crosvm's key=value parser takes the base64 and the '=' and ':'
 // around it literally.
 fn credential_oem_string(name: &str, content: &str) -> String {
@@ -635,9 +646,11 @@ impl AsyncFactoryComponent for VmEntry {
                                 AGENT_DISK_FD, AGENT_DISK_PCI_ADDRESS,
                             );
                             let smbios_str = format!(
-                                "oem-strings=[{},{}]",
+                                "oem-strings=[{},{},{},{}]",
                                 credential_oem_string("systemd.extra-unit.run-bubbles.mount", AGENT_MOUNT_UNIT),
                                 credential_oem_string("systemd.extra-unit.bubbles-agent.service", AGENT_SERVICE_UNIT),
+                                credential_oem_string("systemd.extra-unit.bubbles-lock-password.service", LOCK_PASSWORD_UNIT),
+                                credential_oem_string("tmpfiles.extra", SUDOERS_TMPFILES),
                             );
                             let crosvm_args: Vec<&OsStr> = vec![
                                 OsStr::new("/app/bin/crosvm"),
@@ -670,6 +683,8 @@ impl AsyncFactoryComponent for VmEntry {
                                 OsStr::new(&hostname_param),
                                 OsStr::new("-p"),
                                 OsStr::new("systemd.wants=bubbles-agent.service"),
+                                OsStr::new("-p"),
+                                OsStr::new("systemd.wants=bubbles-lock-password.service"),
                                 // The image's own agent and its proxies, for this boot only:
                                 // started by an older app, the bubble still gets them.
                                 OsStr::new("-p"),
