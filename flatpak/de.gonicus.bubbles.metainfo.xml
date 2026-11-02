@@ -67,6 +67,15 @@
     <control>pointing</control>
   </supports>
   <releases>
+    <release version="1.3.4" date="2026-11-02">
+      <description>
+        <p>Release description</p>
+        <ul>
+          <li>Fix fractional scaling issues</li>
+          <li>Lock user account</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.3.3" date="2026-10-28">
       <description>
         <p>Release description</p>
