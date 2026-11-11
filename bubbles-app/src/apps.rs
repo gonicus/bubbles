@@ -735,7 +735,7 @@ pub mod launcher {
 
     /// Before the application runs: the options have to be known when GApplication
     /// parses the command line, which happens before `startup`.
-    pub fn setup(application: &gtk::Application) {
+    pub fn setup(application: &gtk::Application, on_request: impl Fn(StartRequest) + 'static) {
         application.set_flags(application.flags() | gio::ApplicationFlags::HANDLES_COMMAND_LINE);
         application.add_main_option(
             BUBBLE_OPTION,
@@ -753,6 +753,19 @@ pub mod launcher {
             "The desktop file id of the application to start",
             Some("APP"),
         );
+        application.connect_command_line(move |application, command_line| {
+            let options = command_line.options_dict();
+            let option = |name| options.lookup::<String>(name).expect("a string option");
+            match (option(BUBBLE_OPTION), option(START_APP_OPTION)) {
+                (Some(bubble), Some(app_id)) => on_request(StartRequest {
+                    bubble,
+                    app_id,
+                    command_line: ThreadGuard::new(command_line.clone()),
+                }),
+                _ => application.activate(),
+            }
+            ExitCode::SUCCESS
+        });
     }
 
     /// A launcher's request, held until it is answered: the calling process waits
@@ -770,25 +783,6 @@ pub mod launcher {
         fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
             write!(f, "StartRequest({}, {})", self.bubble, self.app_id)
         }
-    }
-
-    /// From the component that knows the bubbles, since only it can say where a
-    /// bubble's agent listens. `command-line` comes after `startup`, in which
-    /// that component is built.
-    pub fn connect(on_request: impl Fn(StartRequest) + 'static) {
-        relm4::main_application().connect_command_line(move |application, command_line| {
-            let options = command_line.options_dict();
-            let option = |name| options.lookup::<String>(name).expect("a string option");
-            match (option(BUBBLE_OPTION), option(START_APP_OPTION)) {
-                (Some(bubble), Some(app_id)) => on_request(StartRequest {
-                    bubble,
-                    app_id,
-                    command_line: ThreadGuard::new(command_line.clone()),
-                }),
-                _ => application.activate(),
-            }
-            ExitCode::SUCCESS
-        });
     }
 
     /// `agent` is `None` while the bubble is not running.

@@ -9,7 +9,7 @@ use gtk::prelude::{BoxExt, ButtonExt, GtkWindowExt};
 use relm4::prelude::{AsyncFactoryComponent, AsyncFactoryVecDeque};
 use relm4::{
     AsyncFactorySender, Component, ComponentController, ComponentParts, ComponentSender,
-    Controller, RelmApp, SimpleComponent, spawn
+    Controller, MessageBroker, RelmApp, SimpleComponent, spawn
 };
 use relm4::factory::DynamicIndex;
 use std::{env, fs, path::{Path, PathBuf}, ffi::{OsStr, OsString}};
@@ -924,8 +924,6 @@ impl SimpleComponent for App {
                 BubbleSettingsOutput::DeleteBubble(name) => AppMsg::DeleteBubble(name),
             });
         let apps_dialog = AppsDialog::builder().launch(()).detach();
-        let launch_sender = sender.input_sender().clone();
-        launcher::connect(move |request| launch_sender.emit(AppMsg::StartApplication(request)));
 
         let mut model = App {
             vms,
@@ -1049,8 +1047,12 @@ impl App {
     }
 }
 
+static APP_BROKER: MessageBroker<AppMsg> = MessageBroker::new();
+
 fn main() {
-    let app = RelmApp::new(APP_ID);
-    launcher::setup(&relm4::main_application());
+    let app = RelmApp::new(APP_ID).with_broker(&APP_BROKER);
+    launcher::setup(&relm4::main_application(), |request| {
+        APP_BROKER.send(AppMsg::StartApplication(request));
+    });
     app.run::<App>(());
 }
