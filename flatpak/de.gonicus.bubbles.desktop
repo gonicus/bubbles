@@ -2,7 +2,8 @@
 Type=Application
 Version=1.0
 Name=Bubbles
-Comment=Lightweight Linux working environments
+Comment=Lightweight Linux environments
 Exec=bubbles
 Icon=de.gonicus.bubbles
 Categories=Development
+Keywords=vm;kvm;microvm;virtual machine;sandbox;isolation;container;nix;compartmentalization

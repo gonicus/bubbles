@@ -3,7 +3,7 @@
   <id>de.gonicus.bubbles</id>
   <name>Bubbles</name>
   <launchable type="desktop-id">de.gonicus.bubbles.desktop</launchable>
-  <summary>Lightweight Linux working environments</summary>
+  <summary>Lightweight Linux environments</summary>
   <metadata_license>MIT</metadata_license>
   <project_license>MIT</project_license>
   <description>
@@ -36,6 +36,7 @@
     </ul>
   </description>
   <url type="homepage">https://github.com/gonicus/bubbles</url>
+  <url type="bugtracker">https://github.com/gonicus/bubbles/issues</url>
   <content_rating type="oars-1.1"/>
   <developer id="de.gonicus">
     <name>GONICUS GmbH</name>
