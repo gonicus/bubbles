@@ -198,7 +198,7 @@ pub enum AppsMsg {
     /// Sent for every bubble whose status changes, shown or not.
     AgentChanged(String, Option<Agent>),
     Refresh,
-    // Answers carry the bubble they were asked of; see `update_row`.
+    // Answers carry the bubble they were asked of; see `row_position`.
     Loaded(String, Box<GuestAppList>, bool),
     Failed(String, String),
     Launch(DynamicIndex),
@@ -438,33 +438,25 @@ impl SimpleComponent for AppsDialog {
                 });
             }
             AppsMsg::ExportFinished(bubble, app_id, result) => {
-                let added = matches!(result, Ok(Some(_)));
-                self.update_row(&bubble, &app_id, |row| {
+                if let Some(position) = self.row_position(&bubble, &app_id) {
+                    let row = &mut self.rows.guard()[position];
                     row.busy = false;
-                    if added {
-                        row.exported = true;
-                    }
-                });
+                    row.exported = matches!(result, Ok(Some(_)));
+                }
                 match result {
                     Ok(None) => {}
-                    Ok(Some(name)) => {
-                        self.toast(&format!("“{name}” added to the application menu"));
-                    }
+                    Ok(Some(name)) => self.toast(&format!("“{name}” added to the application menu")),
                     Err(error) => self.report(&error),
                 }
             }
             AppsMsg::RemoveFinished(bubble, app_id, result) => {
-                let removed = result.is_ok();
-                self.update_row(&bubble, &app_id, |row| {
+                if let Some(position) = self.row_position(&bubble, &app_id) {
+                    let row = &mut self.rows.guard()[position];
                     row.busy = false;
-                    if removed {
-                        row.exported = false;
-                    }
-                });
+                    row.exported = result.is_err();
+                }
                 match result {
-                    Ok(()) => {
-                        self.toast("Removed from the application menu");
-                    }
+                    Ok(()) => self.toast("Removed from the application menu"),
                     Err(error) => self.report(&error),
                 }
             }
@@ -473,17 +465,13 @@ impl SimpleComponent for AppsDialog {
 }
 
 impl AppsDialog {
-    // By id, not index: a refresh mid-export would move the answer onto
-    // whatever row sits at that index now. And only while the dialog still
-    // shows the bubble the answer is about: another may hold the same id.
-    fn update_row(&mut self, bubble: &str, app_id: &str, update: impl FnOnce(&mut AppRow)) {
+    // Answers find their row by app id, since a refresh may have rebuilt the list
+    // meanwhile, and only while the dialog still shows the bubble they are about.
+    fn row_position(&self, bubble: &str, app_id: &str) -> Option<usize> {
         if bubble != self.bubble {
-            return;
+            return None;
         }
-        let Some(position) = self.rows.iter().position(|row| row.app.id == app_id) else {
-            return;
-        };
-        update(self.rows.guard().get_mut(position).expect("the row just found"));
+        self.rows.iter().position(|row| row.app.id == app_id)
     }
 
     fn toast(&self, message: &str) {
@@ -528,10 +516,9 @@ async fn export_launcher(bubble: &str, app: &GuestApp) -> Result<Option<String>,
     proxy().await?
         .install(&token, &desktop_file_id, &entry, InstallOptions::default()).await
         .map_err(|e| format!("the portal could not install the launcher: {e}"))?;
-    // Unrecorded, the launcher would outlive the bubble: deleting it reads the
-    // record. This is also how an export racing a deletion ends, the bubble's
-    // directory being gone.
     if let Err(error) = exports::insert(bubble, &app.id) {
+        // Just in case inserting into our export state file does not work:
+        // uninstall again to prevent invalid state
         let uninstalled = async {
             proxy().await?
                 .uninstall(&desktop_file_id, UninstallOptions::default()).await
