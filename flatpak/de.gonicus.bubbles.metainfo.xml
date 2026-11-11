@@ -68,6 +68,14 @@
     <control>pointing</control>
   </supports>
   <releases>
+    <release version="1.3.5" date="2026-11-11">
+      <description>
+        <p>Release description</p>
+        <ul>
+          <li>Add additional metainfo/desktop file information</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.3.4" date="2026-11-02">
       <description>
         <p>Release description</p>
