@@ -198,8 +198,10 @@ pub enum AppsMsg {
     /// Sent for every bubble whose status changes, shown or not.
     AgentChanged(String, Option<Agent>),
     Refresh,
-    // Answers carry the bubble they were asked of; see `row_position`.
-    Loaded(String, Box<GuestAppList>, bool),
+    // In Loaded, Failed, ExportFinished and RemoveFinished, the first field is the
+    // bubble the call was made for: results arriving after the dialog switched to
+    // another bubble are dropped.
+    Loaded(String, GuestAppList, bool),
     Failed(String, String),
     Launch(DynamicIndex),
     LaunchFinished(String, Result<(), String>),
@@ -351,7 +353,7 @@ impl SimpleComponent for AppsDialog {
                     sender.input(match result {
                         Ok(list) => {
                             let can_export = proxy().await.is_ok();
-                            AppsMsg::Loaded(bubble, Box::new(list), can_export)
+                            AppsMsg::Loaded(bubble, list, can_export)
                         }
                         Err(reason) => AppsMsg::Failed(bubble, reason),
                     });
@@ -395,18 +397,18 @@ impl SimpleComponent for AppsDialog {
                     ListState::Message("Could not read the application list".to_string(), reason);
             }
             AppsMsg::Launch(index) => {
-                let Some(app) = self.rows.get(index.current_index()).map(|row| row.app.clone())
-                else {
+                let Some(row) = self.rows.get(index.current_index()) else {
                     return;
                 };
+                let (id, name) = (row.app.id.clone(), row.app.name.clone());
                 let Some(agent) = self.agent.clone() else {
                     self.report("This bubble is not running");
                     return;
                 };
                 let bubble = self.bubble.clone();
                 relm4::spawn_local(async move {
-                    let result = launcher::start(&agent, &bubble, &app.id).await;
-                    sender.input(AppsMsg::LaunchFinished(app.name, result));
+                    let result = launcher::start(&agent, &bubble, &id).await;
+                    sender.input(AppsMsg::LaunchFinished(name, result));
                 });
             }
             AppsMsg::LaunchFinished(name, result) => match result {
@@ -465,8 +467,8 @@ impl SimpleComponent for AppsDialog {
 }
 
 impl AppsDialog {
-    // Answers find their row by app id, since a refresh may have rebuilt the list
-    // meanwhile, and only while the dialog still shows the bubble they are about.
+    // A finished export or removal finds its row by app id, since a refresh may have
+    // rebuilt the list meanwhile, and only while the dialog still shows its bubble.
     fn row_position(&self, bubble: &str, app_id: &str) -> Option<usize> {
         if bubble != self.bubble {
             return None;
@@ -606,7 +608,6 @@ pub mod exports {
         save(bubble, &exports)
     }
 
-    // KeyFile, not concatenation: a newline in a guest field would inject keys.
     // Name and Icon are left out; the portal overwrites them from PrepareInstall.
     pub fn desktop_entry(bubble: &str, guest_app_id: &str, comment: &str, wm_class: &str) -> String {
         let key_file = glib::KeyFile::new();
