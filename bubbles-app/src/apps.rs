@@ -78,6 +78,7 @@ fn export_icon(app: &GuestApp) -> Option<Vec<u8>> {
 struct RowInit {
     app: GuestApp,
     exported: bool,
+    can_export: bool,
 }
 
 #[derive(Debug)]
@@ -85,6 +86,7 @@ struct AppRow {
     app: GuestApp,
     image: gtk::Image,
     exported: bool,
+    can_export: bool,
     busy: bool,
 }
 
@@ -134,7 +136,7 @@ impl FactoryComponent for AppRow {
                 #[watch]
                 set_class_active: ("accent", self.exported),
                 #[watch]
-                set_tooltip_text: Some(if !portal::available() {
+                set_tooltip_text: Some(if !self.can_export {
                     "This desktop's portal cannot install application launchers"
                 } else if self.exported {
                     "Remove from the host's application menu"
@@ -142,7 +144,7 @@ impl FactoryComponent for AppRow {
                     "Add to the host's application menu"
                 }),
                 #[watch]
-                set_sensitive: portal::available() && !self.busy,
+                set_sensitive: self.can_export && !self.busy,
                 connect_clicked[sender, index] => move |_| {
                     sender.output(AppRowOutput::ToggleMenu(index.clone())).unwrap();
                 }
@@ -151,7 +153,7 @@ impl FactoryComponent for AppRow {
     }
 
     fn init_model(
-        RowInit { app, exported }: Self::Init,
+        RowInit { app, exported, can_export }: Self::Init,
         _index: &DynamicIndex,
         _sender: FactorySender<Self>,
     ) -> Self {
@@ -164,7 +166,7 @@ impl FactoryComponent for AppRow {
             None => gtk::Image::from_icon_name("application-x-executable"),
         };
         image.set_pixel_size(ICON_SIZE);
-        Self { app, image, exported, busy: false }
+        Self { app, image, exported, can_export, busy: false }
     }
 
     fn update(&mut self, _msg: Self::Input, _sender: FactorySender<Self>) {}
@@ -193,7 +195,7 @@ pub enum AppsMsg {
     AgentChanged(String, Option<Agent>),
     Refresh,
     // Answers carry the bubble they were asked of; see `update_row`.
-    Loaded(String, Box<GuestAppList>),
+    Loaded(String, Box<GuestAppList>, bool),
     Failed(String, String),
     Launch(DynamicIndex),
     LaunchFinished(String, Result<(), String>),
@@ -343,15 +345,17 @@ impl SimpleComponent for AppsDialog {
                                 .map_err(|error| format!("The bubble sent something unreadable: {error}"))
                         });
                     sender.input(match result {
-                        Ok(list) => AppsMsg::Loaded(bubble, Box::new(list)),
+                        Ok(list) => {
+                            AppsMsg::Loaded(bubble, Box::new(list), portal::available().await)
+                        }
                         Err(reason) => AppsMsg::Failed(bubble, reason),
                     });
                 });
             }
             // The dialog may have moved on to another bubble while the request
             // was out; its answer must not land under that one's title.
-            AppsMsg::Loaded(bubble, _) | AppsMsg::Failed(bubble, _) if bubble != self.bubble => {}
-            AppsMsg::Loaded(_, list) => {
+            AppsMsg::Loaded(bubble, ..) | AppsMsg::Failed(bubble, _) if bubble != self.bubble => {}
+            AppsMsg::Loaded(_, list, can_export) => {
                 let exported = exports::load(&self.bubble);
                 let mut guard = self.rows.guard();
                 guard.clear();
@@ -368,7 +372,7 @@ impl SimpleComponent for AppsDialog {
                 for app in list.apps.into_iter().filter(has_valid_id) {
                     let is_exported =
                         exported.contains(&exports::desktop_file_id(&self.bubble, &app.id));
-                    guard.push_back(RowInit { app, exported: is_exported });
+                    guard.push_back(RowInit { app, exported: is_exported, can_export });
                 }
                 let count = guard.len();
                 self.state = if count == 0 {
@@ -797,36 +801,13 @@ pub mod launcher {
 }
 
 pub mod portal {
-    use std::sync::OnceLock;
-
     use ashpd::desktop::dynamic_launcher::{
         DynamicLauncherProxy, InstallOptions, PrepareInstallOptions, UninstallOptions,
     };
     use ashpd::desktop::{Icon, ResponseError};
-    use gtk::gio::prelude::*;
-    use gtk::gio::{self, DBusProxy, DBusProxyFlags};
 
-
-    static AVAILABLE: OnceLock<bool> = OnceLock::new();
-
-    // xdg-desktop-portal-wlr and -hyprland ship no DynamicLauncher backend, and
-    // the frontend cannot answer PrepareInstall without one. Synchronous, for the
-    // view: GDBus loads the properties while building the proxy.
-    pub fn available() -> bool {
-        *AVAILABLE.get_or_init(|| {
-            DBusProxy::for_bus_sync(
-                gio::BusType::Session,
-                DBusProxyFlags::NONE,
-                None,
-                "org.freedesktop.portal.Desktop",
-                "/org/freedesktop/portal/desktop",
-                "org.freedesktop.portal.DynamicLauncher",
-                gio::Cancellable::NONE,
-            )
-            .ok()
-            .and_then(|proxy| proxy.cached_property("version"))
-            .is_some()
-        })
+    pub async fn available() -> bool {
+        DynamicLauncherProxy::new().await.is_ok()
     }
 
     async fn proxy() -> Result<DynamicLauncherProxy, String> {
