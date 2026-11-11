@@ -1,3 +1,7 @@
+use ashpd::desktop::dynamic_launcher::{
+    DynamicLauncherProxy, InstallOptions, PrepareInstallOptions, UninstallOptions,
+};
+use ashpd::desktop::{Icon, ResponseError};
 use gtk::gdk_pixbuf::{Colorspace, InterpType, Pixbuf};
 use gtk::gio;
 use gtk::glib;
@@ -346,7 +350,8 @@ impl SimpleComponent for AppsDialog {
                         });
                     sender.input(match result {
                         Ok(list) => {
-                            AppsMsg::Loaded(bubble, Box::new(list), portal::available().await)
+                            let can_export = proxy().await.is_ok();
+                            AppsMsg::Loaded(bubble, Box::new(list), can_export)
                         }
                         Err(reason) => AppsMsg::Failed(bubble, reason),
                     });
@@ -419,9 +424,12 @@ impl SimpleComponent for AppsDialog {
                 relm4::spawn_local(async move {
                     if exported {
                         let desktop_file_id = exports::desktop_file_id(&bubble, &app.id);
-                        let result = portal::uninstall(&desktop_file_id)
-                            .await
-                            .and_then(|()| exports::remove(&bubble, &desktop_file_id));
+                        let result = async {
+                            proxy().await?
+                                .uninstall(&desktop_file_id, UninstallOptions::default()).await
+                                .map_err(|e| format!("the portal could not remove the launcher: {e}"))
+                        }.await
+                        .and_then(|()| exports::remove(&bubble, &desktop_file_id));
                         sender.input(AppsMsg::RemoveFinished(bubble, app.id, result));
                     } else {
                         let result = export_launcher(&bubble, &app).await;
@@ -499,18 +507,37 @@ impl AppsDialog {
 /// The name the launcher ended up with, `None` if the user cancelled.
 async fn export_launcher(bubble: &str, app: &GuestApp) -> Result<Option<String>, String> {
     let proposed = format!("{} ({bubble})", app.name);
-    let Some(token) = portal::prepare_install(&proposed, export_icon(app)).await? else {
-        return Ok(None);
+    // The portal accepts icon bytes only, so an application without an icon of
+    // its own is exported under ours rather than a named fallback.
+    let icon = Icon::Bytes(export_icon(app).unwrap_or_else(|| BUBBLES_ICON.to_vec()));
+    let options = PrepareInstallOptions::default()
+        .set_editable_name(true)
+        .set_editable_icon(true);
+    // No parent window: a real handle needs ashpd's gtk4 feature.
+    let request = proxy().await?
+        .prepare_install(None, &proposed, icon, options).await
+        .map_err(|e| format!("the portal refused to prepare the launcher: {e}"))?;
+    let token = match request.response() {
+        Ok(response) => response.token().to_string(),
+        Err(ashpd::Error::Response(ResponseError::Cancelled)) => return Ok(None),
+        Err(e) => return Err(format!("the portal could not prepare the launcher: {e}")),
     };
 
     let desktop_file_id = exports::desktop_file_id(bubble, &app.id);
     let entry = exports::desktop_entry(bubble, &app.id, &app.comment, &app.wm_class);
-    portal::install(&token, &desktop_file_id, &entry).await?;
+    proxy().await?
+        .install(&token, &desktop_file_id, &entry, InstallOptions::default()).await
+        .map_err(|e| format!("the portal could not install the launcher: {e}"))?;
     // Unrecorded, the launcher would outlive the bubble: deleting it reads the
     // record. This is also how an export racing a deletion ends, the bubble's
     // directory being gone.
     if let Err(error) = exports::insert(bubble, &app.id) {
-        if let Err(uninstall_error) = portal::uninstall(&desktop_file_id).await {
+        let uninstalled = async {
+            proxy().await?
+                .uninstall(&desktop_file_id, UninstallOptions::default()).await
+                .map_err(|e| e.to_string())
+        }.await;
+        if let Err(uninstall_error) = uninstalled {
             eprintln!("could not remove launcher {desktop_file_id}: {uninstall_error}");
         }
         return Err(error);
@@ -522,10 +549,20 @@ async fn export_launcher(bubble: &str, app: &GuestApp) -> Result<Option<String>,
 // that is about to be deleted.
 pub async fn uninstall_launchers(desktop_file_ids: exports::Exports) {
     for desktop_file_id in desktop_file_ids {
-        if let Err(error) = portal::uninstall(&desktop_file_id).await {
+        let uninstalled = async {
+            proxy().await?
+                .uninstall(&desktop_file_id, UninstallOptions::default()).await
+                .map_err(|e| e.to_string())
+        }.await;
+        if let Err(error) = uninstalled {
             eprintln!("could not remove launcher {desktop_file_id}: {error}");
         }
     }
+}
+
+async fn proxy() -> Result<DynamicLauncherProxy, String> {
+    DynamicLauncherProxy::new().await
+        .map_err(|e| format!("no connection to the desktop portal: {e}"))
 }
 
 pub mod exports {
@@ -797,59 +834,5 @@ pub mod launcher {
                     body => Err(body.to_string()),
                 },
             })
-    }
-}
-
-pub mod portal {
-    use ashpd::desktop::dynamic_launcher::{
-        DynamicLauncherProxy, InstallOptions, PrepareInstallOptions, UninstallOptions,
-    };
-    use ashpd::desktop::{Icon, ResponseError};
-
-    pub async fn available() -> bool {
-        DynamicLauncherProxy::new().await.is_ok()
-    }
-
-    async fn proxy() -> Result<DynamicLauncherProxy, String> {
-        DynamicLauncherProxy::new()
-            .await
-            .map_err(|e| format!("no connection to the desktop portal: {e}"))
-    }
-
-    /// `None` means the user cancelled the portal's confirmation dialog.
-    pub async fn prepare_install(name: &str, icon: Option<Vec<u8>>) -> Result<Option<String>, String> {
-        // The portal accepts icon bytes only, so an application without an icon of
-        // its own is exported under ours rather than a named fallback.
-        let icon = Icon::Bytes(icon.unwrap_or_else(|| super::BUBBLES_ICON.to_vec()));
-        let options = PrepareInstallOptions::default()
-            .set_editable_name(true)
-            .set_editable_icon(true);
-        // No parent window: a real handle needs ashpd's gtk4 feature.
-        let request = proxy()
-            .await?
-            .prepare_install(None, name, icon, options)
-            .await
-            .map_err(|e| format!("the portal refused to prepare the launcher: {e}"))?;
-        match request.response() {
-            Ok(response) => Ok(Some(response.token().to_string())),
-            Err(ashpd::Error::Response(ResponseError::Cancelled)) => Ok(None),
-            Err(e) => Err(format!("the portal could not prepare the launcher: {e}")),
-        }
-    }
-
-    pub async fn install(token: &str, desktop_file_id: &str, desktop_entry: &str) -> Result<(), String> {
-        proxy()
-            .await?
-            .install(token, desktop_file_id, desktop_entry, InstallOptions::default())
-            .await
-            .map_err(|e| format!("the portal could not install the launcher: {e}"))
-    }
-
-    pub async fn uninstall(desktop_file_id: &str) -> Result<(), String> {
-        proxy()
-            .await?
-            .uninstall(desktop_file_id, UninstallOptions::default())
-            .await
-            .map_err(|e| format!("the portal could not remove the launcher: {e}"))
     }
 }
