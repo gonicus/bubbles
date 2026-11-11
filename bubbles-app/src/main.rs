@@ -134,6 +134,14 @@ User=user
 ExecStartPre=+/bin/sh -c 'tar -xf /dev/disk/by-id/virtio-bubbles-agent -C /run/bubbles'
 ExecStart=/run/bubbles/bubbles-agent
 Restart=on-failure
+WorkingDirectory=~
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/home/user/.nix-profile/bin
+Environment=XDG_DATA_DIRS=/home/user/.nix-profile/share:/home/user/.local/share/flatpak/exports/share:/var/lib/flatpak/exports/share:/usr/local/share:/usr/share
+Environment=WAYLAND_DISPLAY=wayland-0
+Environment=XDG_SESSION_TYPE=wayland
+Environment=ELECTRON_OZONE_PLATFORM_HINT=auto
 ";
 
 const LOCK_PASSWORD_UNIT: &str = r#"[Unit]
