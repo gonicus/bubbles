@@ -29,6 +29,6 @@ async fn shutdown() -> impl IntoResponse {
 }
 
 async fn spawn_terminal() -> impl IntoResponse {
-    process::Command::new("x-terminal-emulator").current_dir("/home/user").env("XDG_RUNTIME_DIR", "/run/user/1000").spawn().expect("failed to spawn");
+    process::Command::new("x-terminal-emulator").spawn().expect("failed to spawn");
     (StatusCode::CREATED, "Spawned")
 }
