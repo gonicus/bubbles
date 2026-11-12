@@ -68,13 +68,14 @@ flatpak install --bundle $HOME/Downloads/de.gonicus.bubbles.flatpak
 
 
 
-### Run
-
-Start "Bubbles" via desktop, then:
+<details>
+<summary>Usage instruction details</summary>
+  
+Start "Bubbles", then:
 
 1. Press image download button, await completion
 2. Press VM creation button, enter name, confirm
-3. Start VM, await startup and initial setup
+3. Start VM, await startup
 4. Press Terminal button
 5. Enjoy mutable Debian+Nix Installation
 6. (Optional, yet recommended: Setup Nix home-manager, see "Cheat Sheet")
@@ -86,6 +87,8 @@ The installed system is a Debian Trixie with preinstalled...
 - starship (configured for nerdfonts)
 - bubbles-agent (simple agent for serving needs of the UI)
 - FiraCode NerdFont
+
+</details>
 
 ### Cheat sheet
 
