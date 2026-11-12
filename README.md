@@ -107,11 +107,6 @@ $ home-manager switch
 
 - `sudo update-alternatives --config x-terminal-emulator`
 
-#### Enforcing Wayland
-
-- Chromium: `chromium --ozone-platform=wayland`
-- VS Code: `code --ozone-platform=wayland`
-
 ## Comparisons
 
 <details>
