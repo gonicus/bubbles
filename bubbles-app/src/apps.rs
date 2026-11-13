@@ -37,6 +37,21 @@ pub struct GuestAppList {
     apps: Vec<GuestApp>,
 }
 
+impl GuestApp {
+    fn pixbuf(&self, size: i32) -> Option<Pixbuf> {
+        load_pixbuf(&glib::base64_decode(self.icon.as_ref()?), size)
+    }
+
+    fn image(&self) -> gtk::Image {
+        let image = match self.pixbuf(ICON_SIZE) {
+            Some(pixbuf) => gtk::Image::from_paintable(Some(&gtk::gdk::Texture::for_pixbuf(&pixbuf))),
+            None => gtk::Image::from_icon_name("application-x-executable"),
+        };
+        image.set_pixel_size(ICON_SIZE);
+        image
+    }
+}
+
 fn load_pixbuf(bytes: &[u8], size: i32) -> Option<Pixbuf> {
     let stream = gio::MemoryInputStream::from_bytes(&glib::Bytes::from(bytes));
     Pixbuf::from_stream_at_scale(&stream, size, size, true, gio::Cancellable::NONE).ok()
@@ -46,7 +61,7 @@ fn load_pixbuf(bytes: &[u8], size: i32) -> Option<Pixbuf> {
 // the host decodes a launcher icon, so it gets a PNG made from decoded pixels,
 // never the guest's bytes.
 fn export_icon(app: &GuestApp) -> Option<Vec<u8>> {
-    let icon = load_pixbuf(&glib::base64_decode(app.icon.as_ref()?), EXPORT_ICON_SIZE)?;
+    let icon = app.pixbuf(EXPORT_ICON_SIZE)?;
     let badge = load_pixbuf(BUBBLES_ICON, BADGE_SIZE)?;
 
     let canvas = Pixbuf::new(Colorspace::Rgb, true, 8, EXPORT_ICON_SIZE, EXPORT_ICON_SIZE)?;
@@ -79,16 +94,8 @@ fn export_icon(app: &GuestApp) -> Option<Vec<u8>> {
 }
 
 #[derive(Debug)]
-struct RowInit {
-    app: GuestApp,
-    exported: bool,
-    can_export: bool,
-}
-
-#[derive(Debug)]
 struct AppRow {
     app: GuestApp,
-    image: gtk::Image,
     exported: bool,
     can_export: bool,
     busy: bool,
@@ -102,7 +109,7 @@ enum AppRowOutput {
 
 #[relm4::factory]
 impl FactoryComponent for AppRow {
-    type Init = RowInit;
+    type Init = Self;
     type Input = ();
     type Output = AppRowOutput;
     type CommandOutput = ();
@@ -115,7 +122,7 @@ impl FactoryComponent for AppRow {
             set_use_markup: false,
             set_title: &self.app.name,
             set_subtitle: &self.app.comment,
-            add_prefix: &self.image,
+            add_prefix: &self.app.image(),
             set_activatable: true,
             connect_activated[sender, index] => move |_| {
                 sender.output(AppRowOutput::Launch(index.clone())).unwrap();
@@ -156,21 +163,8 @@ impl FactoryComponent for AppRow {
         }
     }
 
-    fn init_model(
-        RowInit { app, exported, can_export }: Self::Init,
-        _index: &DynamicIndex,
-        _sender: FactorySender<Self>,
-    ) -> Self {
-        let pixbuf = app
-            .icon
-            .as_ref()
-            .and_then(|icon| load_pixbuf(&glib::base64_decode(icon), ICON_SIZE));
-        let image = match pixbuf {
-            Some(pixbuf) => gtk::Image::from_paintable(Some(&gtk::gdk::Texture::for_pixbuf(&pixbuf))),
-            None => gtk::Image::from_icon_name("application-x-executable"),
-        };
-        image.set_pixel_size(ICON_SIZE);
-        Self { app, image, exported, can_export, busy: false }
+    fn init_model(init: Self::Init, _index: &DynamicIndex, _sender: FactorySender<Self>) -> Self {
+        init
     }
 
     fn update(&mut self, _msg: Self::Input, _sender: FactorySender<Self>) {}
@@ -379,7 +373,7 @@ impl SimpleComponent for AppsDialog {
                 for app in list.apps.into_iter().filter(has_valid_id) {
                     let is_exported =
                         exported.contains(&exports::desktop_file_id(&self.bubble, &app.id));
-                    guard.push_back(RowInit { app, exported: is_exported, can_export });
+                    guard.push_back(AppRow { app, exported: is_exported, can_export, busy: false });
                 }
                 let count = guard.len();
                 self.state = if count == 0 {
