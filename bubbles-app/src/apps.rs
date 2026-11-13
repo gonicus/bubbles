@@ -199,8 +199,8 @@ pub enum AppsMsg {
     AgentChanged(String, Option<Agent>),
     Refresh,
     // In Loaded, Failed, ExportFinished and RemoveFinished, the first field is the
-    // bubble the call was made for: results arriving after the dialog switched to
-    // another bubble are dropped.
+    // bubble the call was made for. After the dialog switched to another bubble,
+    // a list is dropped; an export or removal still toasts but leaves the rows alone.
     Loaded(String, GuestAppList, bool),
     Failed(String, String),
     Launch(DynamicIndex),
@@ -437,23 +437,15 @@ impl SimpleComponent for AppsDialog {
                 });
             }
             AppsMsg::ExportFinished(bubble, app_id, result) => {
-                if let Some(position) = self.row_position(&bubble, &app_id) {
-                    let row = &mut self.rows.guard()[position];
-                    row.busy = false;
-                    row.exported = result.is_ok();
-                }
+                self.finish_row(&bubble, &app_id, result.is_ok());
                 match result {
                     Ok(name) => self.toast(&format!("“{name}” added to the application menu")),
-                    Err(error) if error.matches(gtk::DialogError::Dismissed) => {}
+                    Err(error) if error.matches(gio::IOErrorEnum::Cancelled) => {}
                     Err(error) => self.report(error.message()),
                 }
             }
             AppsMsg::RemoveFinished(bubble, app_id, result) => {
-                if let Some(position) = self.row_position(&bubble, &app_id) {
-                    let row = &mut self.rows.guard()[position];
-                    row.busy = false;
-                    row.exported = result.is_err();
-                }
+                self.finish_row(&bubble, &app_id, result.is_err());
                 match result {
                     Ok(()) => self.toast("Removed from the application menu"),
                     Err(error) => self.report(error.message()),
@@ -466,11 +458,16 @@ impl SimpleComponent for AppsDialog {
 impl AppsDialog {
     // A finished export or removal finds its row by app id, since a refresh may have
     // rebuilt the list meanwhile, and only while the dialog still shows its bubble.
-    fn row_position(&self, bubble: &str, app_id: &str) -> Option<usize> {
+    fn finish_row(&mut self, bubble: &str, app_id: &str, exported: bool) {
         if bubble != self.bubble {
-            return None;
+            return;
         }
-        self.rows.iter().position(|row| row.app.id == app_id)
+        let Some(position) = self.rows.iter().position(|row| row.app.id == app_id) else {
+            return;
+        };
+        let row = &mut self.rows.guard()[position];
+        row.busy = false;
+        row.exported = exported;
     }
 
     fn toast(&self, message: &str) {
@@ -491,7 +488,7 @@ impl AppsDialog {
     }
 }
 
-/// The name the launcher ended up with, `DialogError::Dismissed` if the user cancelled.
+/// The name the launcher ended up with, `IOErrorEnum::Cancelled` if the user cancelled.
 async fn export_launcher(bubble: &str, app: &GuestApp) -> Result<String, glib::Error> {
     let proposed = format!("{} ({bubble})", app.name);
     // The portal accepts icon bytes only, so an application without an icon of
@@ -501,27 +498,21 @@ async fn export_launcher(bubble: &str, app: &GuestApp) -> Result<String, glib::E
         .set_editable_name(true)
         .set_editable_icon(true);
     // No parent window: a real handle needs ashpd's gtk4 feature.
-    let request = proxy().await?
+    let response = proxy().await?
         .prepare_install(None, &proposed, icon, options).await
-        .map_err(|e| failed(&format!("the portal refused to prepare the launcher: {e}")))?;
-    let token = match request.response() {
-        Ok(response) => response.token().to_string(),
-        Err(ashpd::Error::Response(ResponseError::Cancelled)) => {
-            return Err(glib::Error::new(gtk::DialogError::Dismissed, "cancelled by the user"));
-        }
-        Err(e) => {
-            return Err(glib::Error::new(
-                gtk::DialogError::Failed,
-                &format!("the portal could not prepare the launcher: {e}"),
-            ));
-        }
-    };
+        .and_then(|request| request.response())
+        .map_err(|e| match e {
+            ashpd::Error::Response(ResponseError::Cancelled) => {
+                glib::Error::new(gio::IOErrorEnum::Cancelled, "cancelled by the user")
+            }
+            e => failed("the portal could not prepare the launcher", e),
+        })?;
 
     let desktop_file_id = exports::desktop_file_id(bubble, &app.id);
     let entry = exports::desktop_entry(bubble, &app.id, &app.comment, &app.wm_class);
     proxy().await?
-        .install(&token, &desktop_file_id, &entry, InstallOptions::default()).await
-        .map_err(|e| failed(&format!("the portal could not install the launcher: {e}")))?;
+        .install(response.token(), &desktop_file_id, &entry, InstallOptions::default()).await
+        .map_err(|e| failed("the portal could not install the launcher", e))?;
     if let Err(error) = exports::insert(bubble, &app.id) {
         // Just in case inserting into our export state file does not work:
         // uninstall again to prevent invalid state
@@ -530,7 +521,7 @@ async fn export_launcher(bubble: &str, app: &GuestApp) -> Result<String, glib::E
         }
         return Err(error);
     }
-    Ok(proposed)
+    Ok(response.name().to_owned())
 }
 
 // The caller reads the ids first: the file naming them lives in the directory
@@ -546,16 +537,16 @@ pub async fn uninstall_launchers(desktop_file_ids: exports::Exports) {
 async fn uninstall(desktop_file_id: &str) -> Result<(), glib::Error> {
     proxy().await?
         .uninstall(desktop_file_id, UninstallOptions::default()).await
-        .map_err(|e| failed(&format!("the portal could not remove the launcher: {e}")))
+        .map_err(|e| failed("the portal could not remove the launcher", e))
 }
 
 async fn proxy() -> Result<DynamicLauncherProxy, glib::Error> {
     DynamicLauncherProxy::new().await
-        .map_err(|e| failed(&format!("no connection to the desktop portal: {e}")))
+        .map_err(|e| failed("no connection to the desktop portal", e))
 }
 
-fn failed(message: &str) -> glib::Error {
-    glib::Error::new(gio::IOErrorEnum::Failed, message)
+fn failed(context: &str, error: impl std::fmt::Display) -> glib::Error {
+    glib::Error::new(gio::IOErrorEnum::Failed, &format!("{context}: {error}"))
 }
 
 pub mod exports {
