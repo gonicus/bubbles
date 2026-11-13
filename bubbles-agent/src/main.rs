@@ -35,23 +35,33 @@ async fn main() {
 
 // The host passes the token as a systemd credential; without one, anyone who
 // can reach the port could drive the bubble, so there is no fallback.
-fn read_token() -> Arc<[u8]> {
+fn digest(bytes: &[u8]) -> Arc<str> {
+    gio::glib::compute_checksum_for_bytes(
+        gio::glib::ChecksumType::Sha256,
+        &gio::glib::Bytes::from(bytes),
+    )
+    .expect("SHA-256 to be supported")
+    .as_str()
+    .into()
+}
+
+fn read_token() -> Arc<str> {
     let directory = std::env::var("CREDENTIALS_DIRECTORY")
         .unwrap_or_else(|_| panic!("no credentials directory, is {TOKEN_CREDENTIAL} loaded?"));
     let token = std::fs::read(std::path::Path::new(&directory).join(TOKEN_CREDENTIAL))
         .unwrap_or_else(|error| panic!("cannot read {TOKEN_CREDENTIAL}: {error}"));
     // An empty token would let a bare "Bearer " through.
     assert!(!token.is_empty(), "{TOKEN_CREDENTIAL} is empty");
-    token.into()
+    digest(&token)
 }
 
-async fn authorize(State(token): State<Arc<[u8]>>, request: Request, next: Next) -> Response {
+async fn authorize(State(token): State<Arc<str>>, request: Request, next: Next) -> Response {
     let presented = request
         .headers()
         .get(header::AUTHORIZATION)
         .and_then(|value| value.as_bytes().strip_prefix(b"Bearer "));
     match presented {
-        Some(presented) if presented == &token[..] => next.run(request).await,
+        Some(presented) if digest(presented) == token => next.run(request).await,
         _ => StatusCode::UNAUTHORIZED.into_response(),
     }
 }
