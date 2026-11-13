@@ -86,6 +86,8 @@ fn export_icon(app: &GuestApp) -> Option<Vec<u8>> {
 #[derive(Debug)]
 struct AppRow {
     app: GuestApp,
+    /// `false` for a launcher whose application is gone from the bubble.
+    installed: bool,
     exported: bool,
     can_export: bool,
     busy: bool,
@@ -107,7 +109,7 @@ impl FactoryComponent for AppRow {
             set_title: &self.app.name,
             set_subtitle: &self.app.comment,
             add_prefix: &self.app.image(),
-            set_activatable: true,
+            set_activatable: self.installed,
             connect_activated[sender, index] => move |_| {
                 sender.output(AppsMsg::Launch(index.clone())).unwrap();
             },
@@ -119,6 +121,7 @@ impl FactoryComponent for AppRow {
                 set_valign: gtk::Align::Center,
                 set_icon_name: "media-playback-start-symbolic",
                 set_css_classes: &["flat"],
+                set_visible: self.installed,
                 set_tooltip_text: Some("Start this application in the bubble"),
                 connect_clicked[sender, index] => move |_| {
                     sender.output(AppsMsg::Launch(index.clone())).unwrap();
@@ -128,6 +131,7 @@ impl FactoryComponent for AppRow {
                 set_valign: gtk::Align::Center,
                 set_icon_name: "view-pin-symbolic",
                 set_css_classes: &["flat"],
+                set_visible: self.installed,
                 #[watch]
                 set_class_active: ("accent", self.exported),
                 #[watch]
@@ -138,6 +142,18 @@ impl FactoryComponent for AppRow {
                 } else {
                     "Add to the host's application menu"
                 }),
+                #[watch]
+                set_sensitive: self.can_export && !self.busy,
+                connect_clicked[sender, index] => move |_| {
+                    sender.output(AppsMsg::ToggleMenu(index.clone())).unwrap();
+                }
+            },
+            add_suffix = &gtk::Button {
+                set_valign: gtk::Align::Center,
+                set_icon_name: "user-trash-symbolic",
+                set_css_classes: &["flat"],
+                set_visible: !self.installed,
+                set_tooltip_text: Some("Remove the leftover launcher from the host's application menu"),
                 #[watch]
                 set_sensitive: self.can_export && !self.busy,
                 connect_clicked[sender, index] => move |_| {
@@ -331,7 +347,7 @@ impl SimpleComponent for AppsDialog {
                     ListState::Message("Could not read the application list".to_string(), reason);
             }
             AppsMsg::Loaded(_, Ok((list, can_export))) => {
-                let exported = exports::load(&self.bubble);
+                let mut exported = exports::load(&self.bubble);
                 let mut guard = self.rows.guard();
                 guard.clear();
                 // The guest picks the id, and it ends up in the launcher's Exec
@@ -345,9 +361,33 @@ impl SimpleComponent for AppsDialog {
                             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '+'))
                 };
                 for app in list.apps.into_iter().filter(has_valid_id) {
-                    let is_exported =
-                        exported.contains(&exports::desktop_file_id(&self.bubble, &app.id));
-                    guard.push_back(AppRow { app, exported: is_exported, can_export, busy: false });
+                    let is_exported = exported
+                        .remove(&exports::desktop_file_id(&self.bubble, &app.id))
+                        .is_some();
+                    guard.push_back(AppRow {
+                        app,
+                        installed: true,
+                        exported: is_exported,
+                        can_export,
+                        busy: false,
+                    });
+                }
+                // What is left was exported once and is gone from the bubble since.
+                for id in exported.into_values() {
+                    let app = GuestApp {
+                        name: id.clone(),
+                        id,
+                        comment: "No longer installed in this bubble".to_string(),
+                        wm_class: String::new(),
+                        icon: None,
+                    };
+                    guard.push_back(AppRow {
+                        app,
+                        installed: false,
+                        exported: true,
+                        can_export,
+                        busy: false,
+                    });
                 }
                 let count = guard.len();
                 self.state = if count == 0 {
@@ -431,9 +471,19 @@ impl AppsDialog {
         let Some(position) = self.rows.iter().position(|row| row.app.id == app_id) else {
             return;
         };
-        let row = &mut self.rows.guard()[position];
+        let mut rows = self.rows.guard();
+        let row = &mut rows[position];
         row.busy = false;
         row.exported = exported;
+        if !row.installed && !exported {
+            rows.remove(position);
+            if rows.is_empty() {
+                self.state = ListState::Message(
+                    "No applications".to_string(),
+                    "This bubble has nothing installed that would show up in a menu.".to_string(),
+                );
+            }
+        }
     }
 
     fn toast(&self, message: &str) {
@@ -480,7 +530,7 @@ async fn export_launcher(bubble: &str, app: &GuestApp) -> Result<String, glib::E
         .install(response.token(), &desktop_file_id, &entry, InstallOptions::default()).await
         .map_err(|e| failed("the portal could not install the launcher", e))?;
     let recorded = exports::update(bubble, |exports| {
-        exports.insert(desktop_file_id.clone());
+        exports.insert(desktop_file_id.clone(), app.id.clone());
     });
     if let Err(error) = recorded {
         // Just in case inserting into our export state file does not work:
@@ -496,7 +546,7 @@ async fn export_launcher(bubble: &str, app: &GuestApp) -> Result<String, glib::E
 // The caller reads the ids first: the file naming them lives in the directory
 // that is about to be deleted.
 pub async fn uninstall_launchers(desktop_file_ids: exports::Exports) {
-    for desktop_file_id in desktop_file_ids {
+    for desktop_file_id in desktop_file_ids.into_keys() {
         if let Err(error) = uninstall(&desktop_file_id).await {
             eprintln!("could not remove launcher {desktop_file_id}: {error}");
         }
@@ -519,7 +569,7 @@ fn failed(context: &str, error: impl std::fmt::Display) -> glib::Error {
 }
 
 pub mod exports {
-    use std::collections::BTreeSet;
+    use std::collections::BTreeMap;
     use std::fs;
     use std::path::PathBuf;
 
@@ -529,9 +579,11 @@ pub mod exports {
     use super::launcher::exec_line;
     use crate::APP_ID;
 
-    /// The desktop file ids of a bubble's launchers. Kept because deleting the
-    /// bubble has to uninstall them, and the portal cannot list them.
-    pub type Exports = BTreeSet<String>;
+    /// The desktop file ids of a bubble's launchers, each with the guest's
+    /// desktop file id it starts. Kept because the portal cannot list them:
+    /// deleting the bubble has to uninstall them, and one whose application is
+    /// gone from the bubble is still to be shown.
+    pub type Exports = BTreeMap<String, String>;
 
     fn exports_path(bubble: &str) -> PathBuf {
         vm_dir(bubble).join("exports.json")
@@ -546,7 +598,7 @@ pub mod exports {
 
     // A lost write leaves a launcher behind when the bubble is deleted.
     fn save(bubble: &str, exports: &Exports) -> Result<(), glib::Error> {
-        let data = serde_json::to_string_pretty(exports).expect("a string set to serialise");
+        let data = serde_json::to_string_pretty(exports).expect("a string map to serialise");
         glib::file_set_contents(exports_path(bubble), data.as_bytes())
     }
 
