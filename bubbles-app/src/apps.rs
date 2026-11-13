@@ -234,10 +234,10 @@ impl SimpleComponent for AppsDialog {
                                 _ => "",
                             },
                             #[watch]
-                            set_description: Some(match &model.state {
+                            set_description: Some(&glib::markup_escape_text(match &model.state {
                                 ListState::Message(_, description) => description.as_str(),
                                 _ => "",
-                            }),
+                            })),
                         },
                         add_named[Some("list")] = &gtk::ScrolledWindow {
                             set_vexpand: true,

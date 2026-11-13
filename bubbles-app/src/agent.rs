@@ -33,7 +33,12 @@ pub async fn agent_request(
     path: &str,
     body: Option<serde_json::Value>,
 ) -> Result<(StatusCode, String), String> {
-    let mut request = reqwest::Client::new()
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .no_proxy()
+        .build()
+        .map_err(|e| format!("could not set up the HTTP client: {e}"))?;
+    let mut request = client
         .request(method, format!("http://{}{}", agent.addr, path))
         .bearer_auth(&agent.token)
         // Covers reading the body too, not just the headers.
