@@ -206,8 +206,8 @@ pub enum AppsMsg {
     Launch(DynamicIndex),
     LaunchFinished(String, Result<(), String>),
     ToggleMenu(DynamicIndex),
-    ExportFinished(String, String, Result<Option<String>, String>),
-    RemoveFinished(String, String, Result<(), String>),
+    ExportFinished(String, String, Result<String, glib::Error>),
+    RemoveFinished(String, String, Result<(), glib::Error>),
 }
 
 #[relm4::component(pub)]
@@ -426,12 +426,9 @@ impl SimpleComponent for AppsDialog {
                 relm4::spawn_local(async move {
                     if exported {
                         let desktop_file_id = exports::desktop_file_id(&bubble, &app.id);
-                        let result = async {
-                            proxy().await?
-                                .uninstall(&desktop_file_id, UninstallOptions::default()).await
-                                .map_err(|e| format!("the portal could not remove the launcher: {e}"))
-                        }.await
-                        .and_then(|()| exports::remove(&bubble, &desktop_file_id));
+                        let result = uninstall(&desktop_file_id)
+                            .await
+                            .and_then(|()| exports::remove(&bubble, &desktop_file_id));
                         sender.input(AppsMsg::RemoveFinished(bubble, app.id, result));
                     } else {
                         let result = export_launcher(&bubble, &app).await;
@@ -443,12 +440,12 @@ impl SimpleComponent for AppsDialog {
                 if let Some(position) = self.row_position(&bubble, &app_id) {
                     let row = &mut self.rows.guard()[position];
                     row.busy = false;
-                    row.exported = matches!(result, Ok(Some(_)));
+                    row.exported = result.is_ok();
                 }
                 match result {
-                    Ok(None) => {}
-                    Ok(Some(name)) => self.toast(&format!("“{name}” added to the application menu")),
-                    Err(error) => self.report(&error),
+                    Ok(name) => self.toast(&format!("“{name}” added to the application menu")),
+                    Err(error) if error.matches(gtk::DialogError::Dismissed) => {}
+                    Err(error) => self.report(error.message()),
                 }
             }
             AppsMsg::RemoveFinished(bubble, app_id, result) => {
@@ -459,7 +456,7 @@ impl SimpleComponent for AppsDialog {
                 }
                 match result {
                     Ok(()) => self.toast("Removed from the application menu"),
-                    Err(error) => self.report(&error),
+                    Err(error) => self.report(error.message()),
                 }
             }
         }
@@ -494,8 +491,8 @@ impl AppsDialog {
     }
 }
 
-/// The name the launcher ended up with, `None` if the user cancelled.
-async fn export_launcher(bubble: &str, app: &GuestApp) -> Result<Option<String>, String> {
+/// The name the launcher ended up with, `DialogError::Dismissed` if the user cancelled.
+async fn export_launcher(bubble: &str, app: &GuestApp) -> Result<String, glib::Error> {
     let proposed = format!("{} ({bubble})", app.name);
     // The portal accepts icon bytes only, so an application without an icon of
     // its own is exported under ours rather than a named fallback.
@@ -506,52 +503,59 @@ async fn export_launcher(bubble: &str, app: &GuestApp) -> Result<Option<String>,
     // No parent window: a real handle needs ashpd's gtk4 feature.
     let request = proxy().await?
         .prepare_install(None, &proposed, icon, options).await
-        .map_err(|e| format!("the portal refused to prepare the launcher: {e}"))?;
+        .map_err(|e| failed(&format!("the portal refused to prepare the launcher: {e}")))?;
     let token = match request.response() {
         Ok(response) => response.token().to_string(),
-        Err(ashpd::Error::Response(ResponseError::Cancelled)) => return Ok(None),
-        Err(e) => return Err(format!("the portal could not prepare the launcher: {e}")),
+        Err(ashpd::Error::Response(ResponseError::Cancelled)) => {
+            return Err(glib::Error::new(gtk::DialogError::Dismissed, "cancelled by the user"));
+        }
+        Err(e) => {
+            return Err(glib::Error::new(
+                gtk::DialogError::Failed,
+                &format!("the portal could not prepare the launcher: {e}"),
+            ));
+        }
     };
 
     let desktop_file_id = exports::desktop_file_id(bubble, &app.id);
     let entry = exports::desktop_entry(bubble, &app.id, &app.comment, &app.wm_class);
     proxy().await?
         .install(&token, &desktop_file_id, &entry, InstallOptions::default()).await
-        .map_err(|e| format!("the portal could not install the launcher: {e}"))?;
+        .map_err(|e| failed(&format!("the portal could not install the launcher: {e}")))?;
     if let Err(error) = exports::insert(bubble, &app.id) {
         // Just in case inserting into our export state file does not work:
         // uninstall again to prevent invalid state
-        let uninstalled = async {
-            proxy().await?
-                .uninstall(&desktop_file_id, UninstallOptions::default()).await
-                .map_err(|e| e.to_string())
-        }.await;
-        if let Err(uninstall_error) = uninstalled {
+        if let Err(uninstall_error) = uninstall(&desktop_file_id).await {
             eprintln!("could not remove launcher {desktop_file_id}: {uninstall_error}");
         }
         return Err(error);
     }
-    Ok(Some(proposed))
+    Ok(proposed)
 }
 
 // The caller reads the ids first: the file naming them lives in the directory
 // that is about to be deleted.
 pub async fn uninstall_launchers(desktop_file_ids: exports::Exports) {
     for desktop_file_id in desktop_file_ids {
-        let uninstalled = async {
-            proxy().await?
-                .uninstall(&desktop_file_id, UninstallOptions::default()).await
-                .map_err(|e| e.to_string())
-        }.await;
-        if let Err(error) = uninstalled {
+        if let Err(error) = uninstall(&desktop_file_id).await {
             eprintln!("could not remove launcher {desktop_file_id}: {error}");
         }
     }
 }
 
-async fn proxy() -> Result<DynamicLauncherProxy, String> {
+async fn uninstall(desktop_file_id: &str) -> Result<(), glib::Error> {
+    proxy().await?
+        .uninstall(desktop_file_id, UninstallOptions::default()).await
+        .map_err(|e| failed(&format!("the portal could not remove the launcher: {e}")))
+}
+
+async fn proxy() -> Result<DynamicLauncherProxy, glib::Error> {
     DynamicLauncherProxy::new().await
-        .map_err(|e| format!("no connection to the desktop portal: {e}"))
+        .map_err(|e| failed(&format!("no connection to the desktop portal: {e}")))
+}
+
+fn failed(message: &str) -> glib::Error {
+    glib::Error::new(gio::IOErrorEnum::Failed, message)
 }
 
 pub mod exports {
@@ -581,10 +585,9 @@ pub mod exports {
     }
 
     // A lost write leaves a launcher behind when the bubble is deleted.
-    fn save(bubble: &str, exports: &Exports) -> Result<(), String> {
+    fn save(bubble: &str, exports: &Exports) -> Result<(), glib::Error> {
         let data = serde_json::to_string_pretty(exports).expect("a string set to serialise");
-        let path = exports_path(bubble);
-        fs::write(&path, data).map_err(|e| format!("could not write {}: {e}", path.display()))
+        glib::file_set_contents(exports_path(bubble), data.as_bytes())
     }
 
     // The portal requires flatpak_is_valid_name() below our app id: dot-separated
@@ -596,13 +599,13 @@ pub mod exports {
         format!("{APP_ID}.b_{bubble}_{:.8}.desktop", hash.as_str())
     }
 
-    pub fn insert(bubble: &str, guest_app_id: &str) -> Result<(), String> {
+    pub fn insert(bubble: &str, guest_app_id: &str) -> Result<(), glib::Error> {
         let mut exports = load(bubble);
         exports.insert(desktop_file_id(bubble, guest_app_id));
         save(bubble, &exports)
     }
 
-    pub fn remove(bubble: &str, desktop_file_id: &str) -> Result<(), String> {
+    pub fn remove(bubble: &str, desktop_file_id: &str) -> Result<(), glib::Error> {
         let mut exports = load(bubble);
         exports.remove(desktop_file_id);
         save(bubble, &exports)
