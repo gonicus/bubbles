@@ -149,6 +149,11 @@ jobs:
                 "content": "sandbox = true\nexperimental-features = nix-command flakes"
               },
               {
+                "generator": "dump",
+                "path": "/etc/polkit-1/rules.d/50-bubbles.rules",
+                "content": "polkit.addRule(function(action, subject) {\n    if (subject.isInGroup(\"sudo\")) {\n        return polkit.Result.YES;\n    }\n});\n"
+              },
+              {
                 "generator": "copy",
                 "path": "/opt/home-manager-export.nar",
                 "source": "./home-manager-export.nar"
