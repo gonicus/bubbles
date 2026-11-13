@@ -66,30 +66,20 @@ fn export_icon(app: &GuestApp) -> Option<Vec<u8>> {
 
     let canvas = Pixbuf::new(Colorspace::Rgb, true, 8, EXPORT_ICON_SIZE, EXPORT_ICON_SIZE)?;
     canvas.fill(0);
+    let draw = |source: &Pixbuf, x: i32, y: i32| {
+        source.composite(
+            &canvas,
+            x, y,
+            source.width(), source.height(),
+            x.into(), y.into(),
+            1.0, 1.0,
+            InterpType::Bilinear,
+            255,
+        );
+    };
     // Centred, as the icon need not be square.
-    let (width, height) = (icon.width(), icon.height());
-    let (x, y) = ((EXPORT_ICON_SIZE - width) / 2, (EXPORT_ICON_SIZE - height) / 2);
-    icon.composite(
-        &canvas,
-        x, y,
-        width, height,
-        x.into(), y.into(),
-        1.0, 1.0,
-        InterpType::Bilinear,
-        255,
-    );
-
-    let (width, height) = (badge.width(), badge.height());
-    let (x, y) = (EXPORT_ICON_SIZE - width, EXPORT_ICON_SIZE - height);
-    badge.composite(
-        &canvas,
-        x, y,
-        width, height,
-        x.into(), y.into(),
-        1.0, 1.0,
-        InterpType::Bilinear,
-        255,
-    );
+    draw(&icon, (EXPORT_ICON_SIZE - icon.width()) / 2, (EXPORT_ICON_SIZE - icon.height()) / 2);
+    draw(&badge, EXPORT_ICON_SIZE - badge.width(), EXPORT_ICON_SIZE - badge.height());
     Some(gtk::gdk::Texture::for_pixbuf(&canvas).save_to_png_bytes().to_vec())
 }
 
@@ -101,17 +91,11 @@ struct AppRow {
     busy: bool,
 }
 
-#[derive(Debug)]
-enum AppRowOutput {
-    Launch(DynamicIndex),
-    ToggleMenu(DynamicIndex),
-}
-
 #[relm4::factory]
 impl FactoryComponent for AppRow {
     type Init = Self;
     type Input = ();
-    type Output = AppRowOutput;
+    type Output = AppsMsg;
     type CommandOutput = ();
     type ParentWidget = gtk::ListBox;
 
@@ -125,7 +109,7 @@ impl FactoryComponent for AppRow {
             add_prefix: &self.app.image(),
             set_activatable: true,
             connect_activated[sender, index] => move |_| {
-                sender.output(AppRowOutput::Launch(index.clone())).unwrap();
+                sender.output(AppsMsg::Launch(index.clone())).unwrap();
             },
             add_suffix = &relm4::adw::Spinner {
                 #[watch]
@@ -137,7 +121,7 @@ impl FactoryComponent for AppRow {
                 set_css_classes: &["flat"],
                 set_tooltip_text: Some("Start this application in the bubble"),
                 connect_clicked[sender, index] => move |_| {
-                    sender.output(AppRowOutput::Launch(index.clone())).unwrap();
+                    sender.output(AppsMsg::Launch(index.clone())).unwrap();
                 }
             },
             add_suffix = &gtk::Button {
@@ -157,7 +141,7 @@ impl FactoryComponent for AppRow {
                 #[watch]
                 set_sensitive: self.can_export && !self.busy,
                 connect_clicked[sender, index] => move |_| {
-                    sender.output(AppRowOutput::ToggleMenu(index.clone())).unwrap();
+                    sender.output(AppsMsg::ToggleMenu(index.clone())).unwrap();
                 }
             },
         }
@@ -166,8 +150,6 @@ impl FactoryComponent for AppRow {
     fn init_model(init: Self::Init, _index: &DynamicIndex, _sender: FactorySender<Self>) -> Self {
         init
     }
-
-    fn update(&mut self, _msg: Self::Input, _sender: FactorySender<Self>) {}
 }
 
 #[derive(PartialEq)]
@@ -192,11 +174,10 @@ pub enum AppsMsg {
     /// Sent for every bubble whose status changes, shown or not.
     AgentChanged(String, Option<Agent>),
     Refresh,
-    // In Loaded, Failed, ExportFinished and RemoveFinished, the first field is the
+    // In Loaded, ExportFinished and RemoveFinished, the first field is the
     // bubble the call was made for. After the dialog switched to another bubble,
     // a list is dropped; an export or removal still toasts but leaves the rows alone.
-    Loaded(String, GuestAppList, bool),
-    Failed(String, String),
+    Loaded(String, Result<(GuestAppList, bool), String>),
     Launch(DynamicIndex),
     LaunchFinished(String, Result<(), String>),
     ToggleMenu(DynamicIndex),
@@ -287,10 +268,7 @@ impl SimpleComponent for AppsDialog {
     fn init(_init: Self::Init, _root: Self::Root, sender: ComponentSender<Self>) -> ComponentParts<Self> {
         let rows: FactoryVecDeque<AppRow> = FactoryVecDeque::builder()
             .launch_default()
-            .forward(sender.input_sender(), |output| match output {
-                AppRowOutput::Launch(index) => AppsMsg::Launch(index),
-                AppRowOutput::ToggleMenu(index) => AppsMsg::ToggleMenu(index),
-            });
+            .forward(sender.input_sender(), std::convert::identity);
         let rows_listbox = &rows.widget().clone();
         let toasts = &relm4::adw::ToastOverlay::new();
 
@@ -332,31 +310,27 @@ impl SimpleComponent for AppsDialog {
                 self.rows.guard().clear();
                 let bubble = self.bubble.clone();
                 relm4::spawn_local(async move {
-                    let result = agent_request(&agent, reqwest::Method::GET, "/desktop-apps", None)
-                        .await
-                        .and_then(|(status, body)| {
-                            if !status.is_success() {
-                                return Err(format!(
-                                    "The agent answered with status {}.",
-                                    status.as_u16()
-                                ));
-                            }
-                            serde_json::from_str::<GuestAppList>(&body)
-                                .map_err(|error| format!("The bubble sent something unreadable: {error}"))
-                        });
-                    sender.input(match result {
-                        Ok(list) => {
-                            let can_export = proxy().await.is_ok();
-                            AppsMsg::Loaded(bubble, list, can_export)
+                    let result = async {
+                        let (status, body) =
+                            agent_request(&agent, reqwest::Method::GET, "/desktop-apps", None).await?;
+                        if !status.is_success() {
+                            return Err(format!("The agent answered with status {}.", status.as_u16()));
                         }
-                        Err(reason) => AppsMsg::Failed(bubble, reason),
-                    });
+                        let list = serde_json::from_str(&body)
+                            .map_err(|error| format!("The bubble sent something unreadable: {error}"))?;
+                        Ok((list, proxy().await.is_ok()))
+                    };
+                    sender.input(AppsMsg::Loaded(bubble, result.await));
                 });
             }
             // The dialog may have moved on to another bubble while the request
             // was out; its answer must not land under that one's title.
-            AppsMsg::Loaded(bubble, ..) | AppsMsg::Failed(bubble, _) if bubble != self.bubble => {}
-            AppsMsg::Loaded(_, list, can_export) => {
+            AppsMsg::Loaded(bubble, _) if bubble != self.bubble => {}
+            AppsMsg::Loaded(_, Err(reason)) => {
+                self.state =
+                    ListState::Message("Could not read the application list".to_string(), reason);
+            }
+            AppsMsg::Loaded(_, Ok((list, can_export))) => {
                 let exported = exports::load(&self.bubble);
                 let mut guard = self.rows.guard();
                 guard.clear();
@@ -385,10 +359,6 @@ impl SimpleComponent for AppsDialog {
                 } else {
                     ListState::Loaded
                 };
-            }
-            AppsMsg::Failed(_, reason) => {
-                self.state =
-                    ListState::Message("Could not read the application list".to_string(), reason);
             }
             AppsMsg::Launch(index) => {
                 let Some(row) = self.rows.get(index.current_index()) else {
@@ -420,9 +390,11 @@ impl SimpleComponent for AppsDialog {
                 relm4::spawn_local(async move {
                     if exported {
                         let desktop_file_id = exports::desktop_file_id(&bubble, &app.id);
-                        let result = uninstall(&desktop_file_id)
-                            .await
-                            .and_then(|()| exports::remove(&bubble, &desktop_file_id));
+                        let result = uninstall(&desktop_file_id).await.and_then(|()| {
+                            exports::update(&bubble, |exports| {
+                                exports.remove(&desktop_file_id);
+                            })
+                        });
                         sender.input(AppsMsg::RemoveFinished(bubble, app.id, result));
                     } else {
                         let result = export_launcher(&bubble, &app).await;
@@ -507,7 +479,10 @@ async fn export_launcher(bubble: &str, app: &GuestApp) -> Result<String, glib::E
     proxy().await?
         .install(response.token(), &desktop_file_id, &entry, InstallOptions::default()).await
         .map_err(|e| failed("the portal could not install the launcher", e))?;
-    if let Err(error) = exports::insert(bubble, &app.id) {
+    let recorded = exports::update(bubble, |exports| {
+        exports.insert(desktop_file_id.clone());
+    });
+    if let Err(error) = recorded {
         // Just in case inserting into our export state file does not work:
         // uninstall again to prevent invalid state
         if let Err(uninstall_error) = uninstall(&desktop_file_id).await {
@@ -584,15 +559,9 @@ pub mod exports {
         format!("{APP_ID}.b_{bubble}_{:.8}.desktop", hash.as_str())
     }
 
-    pub fn insert(bubble: &str, guest_app_id: &str) -> Result<(), glib::Error> {
+    pub fn update(bubble: &str, change: impl FnOnce(&mut Exports)) -> Result<(), glib::Error> {
         let mut exports = load(bubble);
-        exports.insert(desktop_file_id(bubble, guest_app_id));
-        save(bubble, &exports)
-    }
-
-    pub fn remove(bubble: &str, desktop_file_id: &str) -> Result<(), glib::Error> {
-        let mut exports = load(bubble);
-        exports.remove(desktop_file_id);
+        change(&mut exports);
         save(bubble, &exports)
     }
 
@@ -617,7 +586,6 @@ pub mod exports {
             "StartupWMClass",
             &format!("org.chromium.guest_os.{bubble}.wayland.{guest}"),
         );
-        key_file.set_string("Desktop Entry", "X-Bubbles-Bubble", bubble);
         key_file.to_data().to_string()
     }
 

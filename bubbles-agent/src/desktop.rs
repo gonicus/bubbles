@@ -39,29 +39,15 @@ fn read_icon(path: &Path) -> Option<Vec<u8>> {
 
 // The icon theme lookup needs a display, so hicolor and pixmaps by hand.
 fn find_themed_icon(name: &str) -> Option<Vec<u8>> {
-    let roots = std::iter::once(gio::glib::user_data_dir()).chain(gio::glib::system_data_dirs());
-    for root in roots {
-        for size in ICON_SIZES {
-            for extension in ["svg", "png"] {
-                let path = root
-                    .join("icons/hicolor")
-                    .join(size)
-                    .join("apps")
-                    .join(format!("{name}.{extension}"));
-                if let Some(icon) = read_icon(&path) {
-                    return Some(icon);
-                }
-            }
-        }
-        // Where applications shipped icons before the icon theme spec.
-        for extension in ["png", "svg"] {
-            let path = root.join("pixmaps").join(format!("{name}.{extension}"));
-            if let Some(icon) = read_icon(&path) {
-                return Some(icon);
-            }
-        }
-    }
-    None
+    let hicolor = ICON_SIZES.iter().flat_map(|size| {
+        ["svg", "png"].map(|extension| format!("icons/hicolor/{size}/apps/{name}.{extension}"))
+    });
+    // Where applications shipped icons before the icon theme spec.
+    let pixmaps = ["png", "svg"].map(|extension| format!("pixmaps/{name}.{extension}"));
+    let candidates: Vec<String> = hicolor.chain(pixmaps).collect();
+    std::iter::once(gio::glib::user_data_dir())
+        .chain(gio::glib::system_data_dirs())
+        .find_map(|root| candidates.iter().find_map(|path| read_icon(&root.join(path))))
 }
 
 fn icon_bytes(icon: &gio::Icon) -> Option<Vec<u8>> {

@@ -172,7 +172,7 @@ Type=oneshot
 ExecStart=/bin/sh -c 'if passwd -S user | grep -q "^user NP "; then usermod -p "!" user; fi'
 "#;
 
-// %H is the bubble name, set via systemd.hostname; see exports::host_app_id.
+// %H is the bubble name, set via systemd.hostname; see exports::desktop_entry.
 const TMPFILES_EXTRA: &str = "\
 f /etc/sudoers.d/bubbles 0440 root root - user ALL=(ALL) NOPASSWD: ALL\\n
 d /run/systemd/user 0755 root root -
