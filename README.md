@@ -55,7 +55,7 @@ flatpak run de.gonicus.bubbles
 </p>
 
 <details>
-<summary>Alternative: Manual installation of (pre-)releases from Github Releases</summary>
+<summary>Alternative: Manual installation of more bleeding edge releases from Github Releases</summary>
   
 Download the flatpak file for the latest `app-v*` release from [releases](https://github.com/gonicus/bubbles/releases).
 
