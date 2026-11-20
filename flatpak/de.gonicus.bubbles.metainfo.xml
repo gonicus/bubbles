@@ -68,6 +68,15 @@
     <control>pointing</control>
   </supports>
   <releases>
+    <release version="1.4.0" date="2026-11-20">
+      <description>
+        <p>Release description</p>
+        <ul>
+          <li>Appstarter feature: Allows exporting applications from bubbles</li>
+          <li>Change agent communication transport from TCP-via-passt to serial</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.3.6" date="2026-11-11">
       <description>
         <p>Release description</p>
