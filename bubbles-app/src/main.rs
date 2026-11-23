@@ -134,11 +134,7 @@ ExecStart=/run/bubbles/bubbles-agent
 WorkingDirectory=~
 Environment=XDG_RUNTIME_DIR=/run/user/1000
 Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
-Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/home/user/.nix-profile/bin
-Environment=XDG_DATA_DIRS=/home/user/.nix-profile/share:/home/user/.local/share/flatpak/exports/share:/var/lib/flatpak/exports/share:/usr/local/share:/usr/share
-Environment=WAYLAND_DISPLAY=wayland-0
-Environment=XDG_SESSION_TYPE=wayland
-Environment=ELECTRON_OZONE_PLATFORM_HINT=auto
+EnvironmentFile=/run/environment.d/bubbles.conf
 ";
 
 const LOCK_PASSWORD_UNIT: &str = r#"[Unit]
@@ -155,6 +151,8 @@ f /etc/sudoers.d/bubbles 0440 root root - user ALL=(ALL) NOPASSWD: ALL\\n
 d /run/systemd/user 0755 root root -
 d /run/systemd/user/sommelier.service.d 0755 root root -
 f+ /run/systemd/user/sommelier.service.d/bubbles.conf 0644 root root - [Service]\\nEnvironment=SOMMELIER_VM_IDENTIFIER=%H\\n
+d /run/environment.d 0755 root root -
+f+ /run/environment.d/bubbles.conf 0644 root root - PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/home/user/.nix-profile/bin\\nXDG_DATA_DIRS=/home/user/.nix-profile/share:/home/user/.local/share/flatpak/exports/share:/var/lib/flatpak/exports/share:/usr/local/share:/usr/share\\nWAYLAND_DISPLAY=wayland-0\\nXDG_SESSION_TYPE=wayland\\nELECTRON_OZONE_PLATFORM_HINT=auto\\n
 ";
 
 // Single-quoted, crosvm's key=value parser takes the base64 and the '=' and ':'
