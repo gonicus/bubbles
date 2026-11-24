@@ -33,20 +33,20 @@
 <summary>Screenshots</summary>
 
 <p>
+  Base app, before having created any bubble, but with image already downloaded:<br>
   <img src="screenshots/01-pre-create.png"/>
-  Base app, before having created any bubble, but with image already downloaded
 </p>
 <p>
+  Bubble creation prompt:<br>
   <img src="screenshots/02-create.png"/>
-  Bubble creation prompt
 </p>
 <p>
+  Bubble settings dialog:<br>
   <img src="screenshots/03-settings.png"/>
-  Bubble settings dialog
 </p>
 <p>
-  <img src="screenshots/04-export-app.png"/>
-  Applications installed in a bubble can be exported to the host application launcher via the "Dynamic Launcher" portal, with a little Bubbles icon added in the corner.
+  Applications installed in a bubble can be exported to the host application launcher via the "Dynamic Launcher" portal, with a little Bubbles icon added in the corner:<br>
+  <img src="screenshots/04-export-app.png"/><br>
   <sub>Copyright of the icons represented in the screenshot held by their respective owners: Vim (presumably held by "The Vim Project" / Bram Moolenaar) and GNOME Console (presumably held by "GNOME Design Team" / Zander Brown)</sub>
 </p>
 
