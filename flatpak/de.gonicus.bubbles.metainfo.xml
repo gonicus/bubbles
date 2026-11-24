@@ -7,8 +7,8 @@
   <metadata_license>MIT</metadata_license>
   <project_license>MIT</project_license>
   <description>
-    <p>Bubbles: Lightweight Linux working environments with seamless Wayland and Networking integration</p>
-    <p>Includes and starts a Gnome Console (kgx), but that is just the adjustable default</p>
+    <p>Lightweight KVM-backed Linux working environments with seamless Wayland and Networking integration</p>
+    <p>Includes and ships a Gnome Console (kgx), but that is just the adjustable default</p>
     <p>Quick, yet Full-featured:</p>
     <ul>
       <li>Starts an instance in just a few seconds</li>
@@ -52,7 +52,7 @@
     </screenshot>
     <screenshot>
       <image>https://raw.githubusercontent.com/gonicus/bubbles/9a6c344813ad6884288e54fff2832719494dfab5/bubbles-app/screenshots/01-pre-create.png</image>
-      <caption>Base app, before having created any bubble</caption>
+      <caption>Base app, before having created any bubble, but with image already downloaded</caption>
     </screenshot>
     <screenshot>
       <image>https://raw.githubusercontent.com/gonicus/bubbles/9a6c344813ad6884288e54fff2832719494dfab5/bubbles-app/screenshots/02-create.png</image>
@@ -68,6 +68,14 @@
     <control>pointing</control>
   </supports>
   <releases>
+    <release version="1.4.1" date="2026-11-24">
+      <description>
+        <p>Release description</p>
+        <ul>
+          <li>Appstarter feature: Consistent env for spawned terminals and generic apps</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.4.0" date="2026-11-20">
       <description>
         <p>Release description</p>

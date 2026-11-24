@@ -5,7 +5,7 @@
 **Quick, yet Full-featured**:
 
   - Starts an instance in just a few seconds
-  - Access to a real Debian installation
+  - Access to a real Debian installation (GNOME Console, Vim, Nix preinstalled)
 
 **Persistent, yet Disposable**:
 
@@ -14,7 +14,7 @@
 
 **Integrated, yet Isolated**:
 
-  - Wayland windows are managed on the host compositor, Networking is transparent
+  - Wayland apps are managed on the host compositor and can be exported into the host application launcher; Networking is transparent
   - Using sub-sandboxing plus strong KVM isolation boundary
 
 **Powerful, yet Unprivileged**:
@@ -32,9 +32,23 @@
 <details>
 <summary>Screenshots</summary>
 
-<img src="screenshots/01-pre-create.png"/>
-<img src="screenshots/02-create.png"/>
-<img src="screenshots/03-settings.png"/>
+<p>
+  <img src="screenshots/01-pre-create.png"/>
+  Base app, before having created any bubble, but with image already downloaded
+</p>
+<p>
+  <img src="screenshots/02-create.png"/>
+  Bubble creation prompt
+</p>
+<p>
+  <img src="screenshots/03-settings.png"/>
+  Bubble settings dialog
+</p>
+<p>
+  <img src="screenshots/04-export-app.png"/>
+  Applications installed in a bubble can be exported to the host application launcher via the "Dynamic Launcher" portal, with a little Bubbles icon added in the corner.
+  <sub>Copyright of the icons represented in the screenshot held by their respective owners: Vim (presumably held by "The Vim Project" / Bram Moolenaar) and GNOME Console (presumably held by "GNOME Design Team" / Zander Brown)</sub>
+</p>
 
 </details>
 
@@ -79,6 +93,7 @@ Start "Bubbles", then:
 4. Press Terminal button
 5. Enjoy mutable Debian+Nix Installation
 6. (Optional, yet recommended: Setup Nix home-manager, see "Cheat Sheet")
+7. (Optional, yet recommended: Export frequently used applications into the host start menu)
 
 The installed system is a Debian Trixie with preinstalled...
 - Gnome Console (kgx)
