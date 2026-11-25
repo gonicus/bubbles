@@ -780,6 +780,7 @@ impl AsyncFactoryComponent for VmEntry {
 
 #[derive(Debug)]
 enum AppMsg {
+    RequestImageDownload,
     DownloadImage,
     FinishImageDownload,
     ShowBubbleCreationDialog,
@@ -853,7 +854,7 @@ impl SimpleComponent for App {
                                         ImageStatus::NotPresent => "folder-download-symbolic",
                                         ImageStatus::Downloading => "image-loading-symbolic",
                                     },
-                                    connect_clicked => AppMsg::DownloadImage,
+                                    connect_clicked => AppMsg::RequestImageDownload,
                                 }
                             }
                         }
@@ -982,7 +983,30 @@ impl SimpleComponent for App {
                     }
                 }
             }
+            AppMsg::RequestImageDownload => {
+                if self.image_status != ImageStatus::Present {
+                    sender.input(AppMsg::DownloadImage);
+                    return;
+                }
+                let dialog = relm4::adw::AlertDialog::new(
+                    Some("Re-download image?"),
+                    Some(
+                        "Does not affect existing bubbles; Mind that the installed image will be removed."
+                    ),
+                );
+                dialog.add_responses(&[("cancel", "Cancel"), ("download", "Download")]);
+                dialog.set_response_appearance("download", relm4::adw::ResponseAppearance::Destructive);
+                dialog.set_default_response(Some("cancel"));
+                dialog.set_close_response("cancel");
+                dialog.connect_response(Some("download"), move |_, _| {
+                    sender.input(AppMsg::DownloadImage);
+                });
+                dialog.present(Some(&self.root));
+            }
             AppMsg::DownloadImage => {
+                if self.image_status == ImageStatus::Downloading {
+                    return;
+                }
                 self.image_status = ImageStatus::Downloading;
                 relm4::spawn_local(async move {
                     download_image().await;
