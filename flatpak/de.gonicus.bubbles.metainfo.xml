@@ -47,20 +47,24 @@
   </branding>
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/gonicus/bubbles/9a6c344813ad6884288e54fff2832719494dfab5/bubbles-app/demo.png</image>
+      <image>https://raw.githubusercontent.com/gonicus/bubbles/d1179fbf4cdbfa159f249fce06d92f526259f1be/screenshots/demo.png</image>
       <caption>Running bubble, with executed default terminal emulator (Gnome Console)</caption>
     </screenshot>
     <screenshot>
-      <image>https://raw.githubusercontent.com/gonicus/bubbles/9a6c344813ad6884288e54fff2832719494dfab5/bubbles-app/screenshots/01-pre-create.png</image>
+      <image>https://raw.githubusercontent.com/gonicus/bubbles/d1179fbf4cdbfa159f249fce06d92f526259f1be/screenshots/01-pre-create.png</image>
       <caption>Base app, before having created any bubble, but with image already downloaded</caption>
     </screenshot>
     <screenshot>
-      <image>https://raw.githubusercontent.com/gonicus/bubbles/9a6c344813ad6884288e54fff2832719494dfab5/bubbles-app/screenshots/02-create.png</image>
+      <image>https://raw.githubusercontent.com/gonicus/bubbles/d1179fbf4cdbfa159f249fce06d92f526259f1be/screenshots/02-create.png</image>
       <caption>Bubble creation prompt</caption>
     </screenshot>
     <screenshot>
-      <image>https://raw.githubusercontent.com/gonicus/bubbles/9a6c344813ad6884288e54fff2832719494dfab5/bubbles-app/screenshots/03-settings.png</image>
+      <image>https://raw.githubusercontent.com/gonicus/bubbles/d1179fbf4cdbfa159f249fce06d92f526259f1be/screenshots/03-settings.png</image>
       <caption>Bubble settings dialog</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/gonicus/bubbles/d1179fbf4cdbfa159f249fce06d92f526259f1be/screenshots/04-export-app.png</image>
+      <caption>Apps can be exported to the host application menu (Icons copyrighted by their owners)</caption>
     </screenshot>
   </screenshots>
   <supports>
@@ -68,6 +72,15 @@
     <control>pointing</control>
   </supports>
   <releases>
+    <release version="1.4.2" date="2026-11-25">
+      <description>
+        <p>Release description</p>
+        <ul>
+          <li>Add confirmation dialog for image re-downloads</li>
+          <li>Update metainfo</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.4.1" date="2026-11-24">
       <description>
         <p>Release description</p>
